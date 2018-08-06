@@ -1,6 +1,14 @@
 # LightSheet_Motion_Analysis
 3D Motion Analysis of Embryos acquired with Lightsheet Microscopy 
 
+
+Dependencies:
+-------------
+Python 2.7 (only the print functionality)
+RealTITracker (3D optical flow), http://bsenneville.free.fr/RealTITracker/
+Mayavi
+Matlab (rigid/similarity registration)
+
 Modules:
 --------
 
