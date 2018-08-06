@@ -4,9 +4,9 @@
 
 Dependencies:
 -------------
-Python 2.7 (only the print functionality)
-RealTITracker (3D optical flow), http://bsenneville.free.fr/RealTITracker/
-Mayavi
+Python 2.7 (only the print functionality) \
+RealTITracker (3D optical flow), http://bsenneville.free.fr/RealTITracker/ \
+Mayavi\
 Matlab (rigid/similarity registration)
 
 Modules:
