@@ -1,0 +1,9 @@
+#####
+# ignore .pyc files
+#####
+*.pyc
+
+main.py
+main_final.py
+main_RG_data.py
+main_single_channel.py
