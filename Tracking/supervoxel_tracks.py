@@ -263,14 +263,31 @@ def tracks2tpy_3D(meantracks):
         particle_id = i*np.ones(len(pos_xyz))
         
         data = np.hstack([pos_xyz, frame[:,None], particle_id[:,None]])
-        tab = pd.DataFrame(data, index=np.arange(len(frame)), columns=['y','x','z', 'frame', 'particle'])
+        tab = pd.DataFrame(data, index=np.arange(len(frame)), columns=['x','y','z', 'frame', 'particle']) # in the form of (x,y,z) tuples. 
         tables.append(tab)
         
     tables = pd.concat(tables,ignore_index=True)
     tables.index = np.arange(tables.shape[0])
     
     return tables
+    
+    
+def tpy3D_2tracks(tpy_table):
 
+    # reverts the table in tracks2tpy_3D:
+    particle_ids = np.unique(tpy_table['particle'].values)
+    
+    tracks = []
+    
+    for i in range(len(particle_ids)):
+        particle_id = particle_ids[i]
+        data = tpy_table.loc[tpy_table['particle'].values==particle_id]
+        data = data.sort_values(by='frame', axis='index')
+        
+        tracks.append(data.loc[:,'x':'z'].values)
+        
+    return np.array(tracks)
+    
     
 def compute_mean_displacement3D_vectors(meantracks3D):
     

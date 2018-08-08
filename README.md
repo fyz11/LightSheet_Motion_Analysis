@@ -11,8 +11,8 @@ Modules:
 [x] 3D optical flow estimation of cellular motion patterns following alignment (Requires RTTtracker Scripts)\
 [x] 3D segmentation of embryos using thresholding \
 [x] 3D tracks\
-
+[x] 3D->2D unwrapping module: given an embryo, automatically transform to cylindrical coordinates and unwrap the surface. Intensity is projected based on drawing a line from the surface coordinate to the center of mass. 
 
 To Do:
 -------
-[ ] 3D->2D unwrapping module 
+[ ] given a 2nd set of coordinates, apply the learnt 3D->2D unpeeling. 

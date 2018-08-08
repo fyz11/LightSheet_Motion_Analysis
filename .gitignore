@@ -2,8 +2,10 @@
 # ignore .pyc files
 #####
 *.pyc
+*.mat
 
 main.py
 main_final.py
 main_RG_data.py
 main_single_channel.py
+Test_Surface_unzipping.py
