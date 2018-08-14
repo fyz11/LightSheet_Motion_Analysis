@@ -6,8 +6,11 @@ Dependencies:
 -------------
 Python 2.7 (only the print functionality) \
 RealTITracker (3D optical flow), http://bsenneville.free.fr/RealTITracker/ \
+SIFT3D, https://github.com/bbrister/SIFT3D.git (3D feature-based registration) \
 Mayavi\
-Matlab (rigid/similarity registration)
+Matlab (rigid/similarity registration) \
+czifile \
+tifffile 
 
 Modules:
 --------
