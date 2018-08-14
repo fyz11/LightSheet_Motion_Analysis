@@ -1,11 +1,21 @@
 #####
 # ignore .pyc files
 #####
+*.csv*
 *.pyc
 *.mat
+*.png
+*.tif
+*.czi
+*.jpg
+test*.py
+Test*.py
+test*.m
+Test*.m
 
 main.py
 main_final.py
 main_RG_data.py
 main_single_channel.py
 Test_Surface_unzipping.py
+read_czifile.py

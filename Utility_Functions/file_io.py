@@ -72,6 +72,21 @@ def read_multiimg_PIL(tiffile):
             break
 
     return np.concatenate(imgs, axis=0)
+    
+    
+def read_czifile(czi_file, squeeze=True):
+    
+    """
+    Reads czifile
+    """
+    from czifile import CziFile
+    
+    with CziFile(czi_file) as czi:
+        image_arrays = czi.asarray()
+    if squeeze:
+        image_arrays = np.squeeze(image_arrays)
+    
+    return image_arrays
 
 
 def save_multipage_tiff(np_array, savename):
@@ -92,9 +107,9 @@ def save_multipage_tiff(np_array, savename):
     from tifffile import imsave
     
     if np_array.max() < 1.1:
-    	imsave(savename, np.uint8(255*np_array))
+        imsave(savename, np.uint8(255*np_array))
     else:
-	imsave(savename, np.uint8(np_array))
+        imsave(savename, np.uint8(np_array))
     
     return [] 
 
@@ -102,6 +117,7 @@ def save_multipage_tiff(np_array, savename):
 def load_dataset(infolder, ext='.tif', split_position=0, split_key='_'):
     
     import os 
+    import re
     
     f = os.listdir(infolder)
     
@@ -109,12 +125,41 @@ def load_dataset(infolder, ext='.tif', split_position=0, split_key='_'):
     
     for ff in f:
         if ext in ff:
-            frame_No = int((ff.split(ext)[0]).split(split_key)[split_position])
+            frame_No = (ff.split(ext)[0]).split(split_key)[split_position]
+            frame_No = int(re.findall(r'\d+',frame_No)[0])
             files.append([frame_No, os.path.join(infolder, ff)])
             
     files = sorted(files, key=lambda x: x[0])
     
     return np.hstack([ff[1] for ff in files])
+    
+    
+def pair_views(dataset_files, ext='.tif', split_key='_',split_position=2, view_by=3):
+    
+    import numpy as np 
+    all_views = []
+    
+    for ii, f in enumerate(dataset_files):
+        basename = get_basename(f, ext)
+        frame = basename.split(split_key)[split_position]
+        target = basename.split(split_key)[view_by]
+        all_views.append([ii, target, frame])
+        
+    all_views = np.array(all_views)
+    uniq_views = np.unique(all_views[:,2])
+    
+    uniq_pairs = []
+    
+    for v in uniq_views:
+        select = all_views[:,2]==v
+        select_views = all_views[select]
+        
+        # sort the view.
+        sorted_views = np.array(sorted(select_views, key=lambda x: x[1]))
+        uniq_pairs.append(dataset_files[sorted_views[:,0].astype(np.int)])
+    
+    return uniq_pairs
+    
     
 def mkdir(directory):
     

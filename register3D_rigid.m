@@ -24,6 +24,10 @@ function [movingRegistered, transform] = register3D_rigid(im1file,im2file, trans
     
     movingRegistered = imwarp(im2, tform,'OutputView', imref3d(size(im1)));
     
+    %% needs faster saving functionality hm... 
+    save('tmp/registered.mat', 'movingRegistered') % save the variable.
+    
+    
     % register the first one. 
     % translation step is not helpful at all, still need to fix the displacement later. 
     %%%%%%%%%%%%%%%%%%%%

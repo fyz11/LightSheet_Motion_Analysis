@@ -22,9 +22,22 @@ def keep_largest_component(mask3D):
     keep = labelled == uniq_regs[np.argmax(areas)]
              
     return keep
+    
+    
+def remove_small_objects( mask3D, minsize=100):
+
+    import skimage.morphology as morph
+    import numpy as np 
+    
+    st = []
+    
+    for v in mask3D:
+        st.append(morph.remove_small_objects(v, min_size=minsize))
+        
+    return np.array(st)
         
 
-def segment_embryo(im_array, I_thresh=10, ksize=3):
+def segment_embryo(im_array, I_thresh=10, ksize=3, minsize=100, apply_morph=True):
     
     """
     im_array : grayscale 3d volume
@@ -34,10 +47,12 @@ def segment_embryo(im_array, I_thresh=10, ksize=3):
     n_z, n_y, n_x = im_array.shape
     
     mask = im_array >= I_thresh
-    mask = keep_largest_component(mask)
-    mask = binary_closing(mask, ball(ksize))
-    mask = binary_dilation(mask, ball(ksize))
+    mask = remove_small_objects(mask, minsize)
     
+    if apply_morph:
+        mask = binary_closing(mask, ball(ksize))
+        mask = binary_dilation(mask, ball(ksize))
+
     return mask
     
 
@@ -83,7 +98,7 @@ def segment_contour_embryo(im_array, I_thresh=10, ksize=3):
     return mask_array, contour_array
     
     
-def unwrap_embryo_surface(im_array, embryo_mask, contour_mask, depth=20, voxel=5.23):   
+def unwrap_embryo_surface(im_array, embryo_mask, contour_mask, depth=20, voxel=5.23, return_no_interp=False):   
    
     """
     Given a segmentation and shell segmentation we can unwrap the embryo surface into 2D map.
@@ -101,16 +116,26 @@ def unwrap_embryo_surface(im_array, embryo_mask, contour_mask, depth=20, voxel=5
     # 1. find the cylindrical coordinates
     xzyp_indices, center_of_mass = find_cylindrical_coords(contour_mask, embryo_mask)
     max_order, xzypI_order = sort_coord_order(xzyp_indices) # sort the coordinates? is this necessary? 
-    emb_map = map_max_projection(im_array, center_of_mass, xzypI_order, max_order, depth=depth, voxel=voxel) # max order is the maximum width.
-    emb_map_wrap, emb_map_normalised, radii = normalise_projection(emb_map, xzypI_order, max_order)
-
+    emb_map, max_pixel = map_max_projection(im_array, center_of_mass, xzypI_order, max_order, depth=depth, voxel=voxel) # max order is the maximum width.
+    
+    map_coords, radii = normalise_projection(emb_map, xzypI_order, max_order)
+    
+    if return_no_interp:
+        (emb_map_normalised, emb_map_wrap), (emb_no_interp, emb_wrap_no_interp) = interpolate_projection(map_coords, radii, return_no_interp=return_no_interp)
+    else:
+        emb_map_normalised, emb_map_wrap = interpolate_projection(map_coords, radii, return_no_interp=return_no_interp)
+    
     # save as a dictionary. 
     # to convert to cylindrical needs the required COM, also needs the max_radii in order to set the map size. 
     unwrap_params = {'max_radii':max_order,
                      'radii':radii, 
-                     'center':center_of_mass}
-
-    return unwrap_params, (emb_map, emb_map_wrap, emb_map_normalised)  
+                     'center':center_of_mass, 
+                     'map_coords':map_coords}
+    
+    if return_no_interp:
+        return unwrap_params, (emb_map, emb_map_wrap, emb_map_normalised, max_pixel, emb_no_interp, emb_wrap_no_interp)  
+    else:
+        return unwrap_params, (emb_map, emb_map_wrap, emb_map_normalised, max_pixel)  
     
     
 def find_cylindrical_coords(contour_mask, embryo_mask):
@@ -154,13 +179,10 @@ def find_cylindrical_coords(contour_mask, embryo_mask):
     phi = np.arctan2((COM_xzy[:,2]), (COM_xzy[:,1]))    # Find the asymuthal angle in cylindrical coords (note: arctan does not find the correct quadrants)
     
     I =  contour_mask[non_zero_indices[:,0], non_zero_indices[:,1], non_zero_indices[:,2]]
-    
     xzypI = np.hstack([non_zero_indices, phi[:,None], I[:,None]])
-    
     
     return xzypI, center # return the centre of mass of embryo
     
-
     
 def sort_coord_order(xzypI): 
         ''' 
@@ -178,20 +200,14 @@ def sort_coord_order(xzypI):
         ind = np.lexsort((xzypI[:,3],xzypI[:,0]))   # Sorting with indices.
         xzypI_order = xzypI[ind]                          
 
-        order = 1               
-        order_matrix = [1]
+        uniq_x = np.unique(xzypI_order[:,0])
+        order_matrix = np.zeros(len(xzypI_order), dtype=np.int)
+        
+        for x in uniq_x:
+            select = xzypI_order[:,0]== x 
+            order_matrix[select] = np.arange(1, np.sum(select)+1, dtype=np.int)
 
-        for l in range(0,len(xzypI_order)-1):                                # If the x value is the same for the next point i.e. same slice, increase the order for that coordinate
-            if xzypI_order[l+1,0] == xzypI_order[l,0]:
-                order+=1
-            else:                                                                   # Else if the x value increases i.e. it is a new slice, reset the order count to 1
-                order=1
-            order_matrix.append(order)
-#            order_matrix = np.append(order_matrix,order)                            # Append the order to the order matrix
-        order_matrix = np.hstack(order_matrix)[:,None]
-   
-#        order_matrix = np.reshape(order_matrix,(len(order_matrix),1))               # Reshape for appending
-        xzypI_order = np.append(xzypI_order, order_matrix, axis=1)    # Append the order column to the data
+        xzypI_order = np.append(xzypI_order, order_matrix[:,None], axis=1)    # Append the order column to the data
         
         # this gives the maximum radii over the whole image to unroll. 
         max_order = np.max(xzypI_order[:,5])                                # This gives the maximum width to be unrolled
@@ -247,14 +263,16 @@ def map_max_projection(im_array, center_of_mass, xzypI_order, max_order, depth=2
         # double check this. should only need the depth. 
         distance_line = np.sqrt(np.sum (np.square (((mask_coords.astype(np.float64))-(pt1[1:3].astype(np.float64)))*[voxel,1]), axis=1))
         mask_distance_less = distance_line<=(depth*voxel)   # Keeps only the values which are less than a given distance
-        max_pixel = np.max(mask_line[mask_distance_less]) # max projection along the line !.
         
+        if len(mask_line[mask_distance_less]) > 0: 
+            max_pixel = np.mean(mask_line[mask_distance_less]) # mean projection
+        else:
+            max_pixel = 0
+#        max_pixel = np.max(mask_line[mask_distance_less]) # mean projection
         emb_map[fx,fo-1] = max_pixel    #-1 as array starts from 0
+                
+    return emb_map, max_pixel
 
-    emb_map=emb_map[np.any(emb_map!=0, axis=1)]      
-        
-    return emb_map
-    
     
 def normalise_projection(emb_map, xzypI_order, max_order):
     
@@ -268,55 +286,73 @@ def normalise_projection(emb_map, xzypI_order, max_order):
                     none
     '''
     import numpy as np 
-    from scipy.interpolate import interp1d
-    
+
+    # find the unique z values.     
     fx_values = np.unique(xzypI_order[:,0]).astype(np.uint)   # Finds all the unique values of fx i.e. each slice basically. hm.... 
-    emb_map_normalised = np.zeros_like(emb_map)
-    emb_map_wrap = np.zeros_like(emb_map)
     
-    radii_x = []
+    radii_x = [] # record the maximum radii.
+    mapped_coords = []
     
-    for fx in fx_values:  
+    # iterate line by line. 
+    for zz, fx in enumerate(fx_values):  
         
         # now this iterates over the radius. 
-        x = xzypI_order[np.where(xzypI_order[:,0]==fx), 5].astype(np.uint)   # Finds all the order values for that x = full_array_orderxpo[:,5] 
-        radii_x.append(np.max(x))
-                        
-        for fo in x:
-            max_pixel = emb_map[fx,fo-1]                                                    # Gives the max_pixels in a correctly ordered array for each fx slice
-        x = np.reshape(x,len(x.T))
+        line = xzypI_order[xzypI_order[:,0]==fx,:]
+        x = line[:,5].astype(np.int); r = np.max(x)
+        p = line[:,3]
+        radii_x.append(r)
         
-        # interpolate if not enough elements hm ? 
-        if len(x)<5:
-            f2 = interp1d(x.T, max_pixel, kind='linear')                    # If at the tip of the embryo, interpolate between fo(order) and fx(x-value) linearly as x vs y on map
-        else:
-            f2 = interp1d(x.T, max_pixel, kind='cubic')                     # for the rest of the pixels, interpolate between fo(order) and fx(x-value) cubically x vs y on map
-        xnew = np.linspace(1, len(x), num=max_order, endpoint=True)         # Interpolate the correct number of values to normalise each width to the maximum
-                                                                            # True means does include the last sample, as it starts from 1 
-        emb_map_normalised[fx,:] = f2(xnew)                                 # Stretches the interpolated values into a normalised array
+        # get the intensity along the line. 
+        max_pixel = np.clip(emb_map[fx, x-1], 0, 255)   # Gives the max_pixels in a correctly ordered array for each fx slice
+        xstretch = np.linspace(np.min(p), np.max(p), max_order)
+        xnew = np.hstack([np.argmin(np.abs(pp-xstretch))+1 for pp in p])
+        
+        ynew = zz * np.ones(len(xnew))
+        mapped_coords.append(np.hstack([line, max_pixel[:,None], ynew[:,None], xnew[:,None]]))
+
+        
+    """
+    return the mapped coordinates and maximum radii 
+    """        
     
-    # this is 
-    for fx in range(0,int(max(fx_values)+1)):      # write length
-        for fo in range(0,int(max_order)):      # write length
-            if emb_map_normalised[fx,fo]>254:        # Prevents saturation tending to zero
-                emb_map_normalised[fx,fo]=255 # is the max range. 
-                
-            max_pixel2 = emb_map_normalised[fx,fo]
-            
-            # hm.... double check this! rounding, important.  
-            F=fo+np.rint((max_order)/2)     # Wrap around so best data is in the middle # round to the nearest integer. 
-            if F > (max_order-1):
-                F=F-(max_order)
-            emb_map_wrap[fx,int(F)] = max_pixel2
-    
-    # why is this needed? 
-    emb_map_normalised=emb_map_normalised[np.any(emb_map_normalised!=0, axis=1)]
-    emb_map_wrap=emb_map_wrap[np.any(emb_map_wrap!=0, axis=1)]
-#    emb_map=self.emb_map[np.any(self.emb_map!=0, axis=1)]        
-#    print('Finished normalising the embryo map to the largest width. End of code.')
-    
-    return emb_map_wrap, emb_map_normalised, np.hstack(radii_x)
+    return np.vstack(mapped_coords), np.hstack(radii_x)
     
     
+def interpolate_projection(mapped_coords, radii_x, return_no_interp=False):
     
+    ''' 
+        Interpolates the 2D image of the projection.  
+            Inputs: 
+                    self.full_array_order_xpo
+                    self.emb_map
+            Ouputs: 
+                    none
+            Returns: 
+                    none
+    '''
+    import numpy as np 
+    from scipy.interpolate import griddata
+    
+    n_rows = len(radii_x)
+    n_cols = np.max(radii_x)
+    
+    if return_no_interp:
+        proj_image = np.zeros((n_rows, n_cols))
+        proj_image[mapped_coords[:,-2].astype(np.int), mapped_coords[:,-1].astype(np.int)-1] = mapped_coords[:,-3]
+        proj_image_r = np.roll(proj_image, shift=n_cols//2, axis=1)
+    
+#    mapped_coords[0]
+#    print mapped_coords[:,[-1,-2]]
+    grid_x, grid_y = np.meshgrid(range(n_cols), range(n_rows))
+    x = mapped_coords[:,-1] -1 
+    y = mapped_coords[:,-2]
+    proj_image_interp = griddata(np.vstack([x,y]).T, mapped_coords[:,-3], (grid_x, grid_y), method='linear')
+    proj_image_interp_r = np.roll(proj_image_interp, shift=n_cols//2, axis=1)
+
+    if return_no_interp:
+        return (proj_image_interp, proj_image_interp_r), (proj_image, proj_image_r)
+    else:
+        return (proj_image_interp, proj_image_interp_r)
+   
+        
  
