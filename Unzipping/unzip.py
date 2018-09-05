@@ -67,7 +67,7 @@ def contour_seg_mask(im, mask):
     
     if len(contours) > 0:
         
-        # find the longest.
+        # find all contours. 
         len_contours = [len(cnt) for cnt in contours]
         contours = np.squeeze(np.array(contours)[np.argmax(len_contours)])
 
@@ -77,7 +77,7 @@ def contour_seg_mask(im, mask):
         if len(contours.shape) == 2:
             contours_im[contours[:,1], contours[:,0]] = 1
     
-    return im*contours_im
+    return contours_im
 
     
 def contour_seg_embryo(im_array, mask_array):
@@ -272,6 +272,104 @@ def map_max_projection(im_array, center_of_mass, xzypI_order, max_order, depth=2
         emb_map[fx,fo-1] = max_pixel    #-1 as array starts from 0
                 
     return emb_map, max_pixel
+    
+    
+    
+def map_centre_line_projection(im_array, center_of_mass, coords, depth=20.0, voxel=5.23):
+    
+    ''' 
+    This is SLOW! -> faster way to get projected intensities along a line? 
+    
+    Given some sorted coordinates this function max projects them and unwraps them onto a 2D map. 
+    
+        Parameters are ...
+            Input path: string, path to files
+            Output path: string, pathe to location in which to save files
+            gpu: whether the code is run on GPU or not
+        Returns:    images of a the unwrapped embryo surface: 'emb_map' 
+                    normalised surface: 'emb_map_normalised'
+                    normalised surface with front data centered: 'emb_map_normalised_wrap'       
+            
+    '''
+
+    import numpy as np 
+    n,p,q = im_array.shape    
+           
+    # Loop over each x (in order of phi) 
+    # Stack the pixels and assign the max of them to the original pixel coordinates in a flat array (x,order)
+    
+    # initialise the arrays. 
+  
+    # in standard (x,y) convention. 
+    pt2 = np.take(center_of_mass, [1,2]).astype(np.int)   # This gives the y,z, central points of that slice (assumes a completely vertical embryo)
+    max_I = []    
+    dist_I = [] 
+    
+    for xpoi in coords:
+
+        fx = int(xpoi[0]) #x
+        fz = int(xpoi[1]) #z 
+        fy = int(xpoi[2]) #y
+        
+        pt1 = np.asarray([fx,fz,fy]).astype(np.int)                    # The coordinates of one pixel on the embryo surface
+
+        """
+        Create a line and project ( forsake the production of intermediate image and expensive boolean operations. )
+        """
+        dist_line = np.linalg.norm(pt1[1:3]-pt2); dist_I.append(dist_line)
+        mask_coords = np.array([np.linspace(pt1[1:3][0], pt2[0], 2*int(dist_line)+1),
+                                np.linspace(pt1[1:3][1], pt2[1], 2*int(dist_line)+1)]).T
+        mask_line = im_array[fx,:,:][mask_coords[:,0].astype(np.int), mask_coords[:,1].astype(np.int)]
+
+        # double check this. should only need the depth. 
+        distance_line = np.sqrt(np.sum (np.square (((mask_coords.astype(np.float64))-(pt1[1:3].astype(np.float64)))*[voxel,1]), axis=1))
+        mask_distance_less = distance_line<=(depth*voxel)   # Keeps only the values which are less than a given distance
+        
+        if len(mask_line[mask_distance_less]) > 0: 
+            max_pixel = np.mean(mask_line[mask_distance_less]) # mean projection
+        else:
+            max_pixel = 0
+#        max_pixel = np.max(mask_line[mask_distance_less]) # mean projection
+        max_I.append(max_pixel)
+        
+    return np.hstack([coords, np.hstack(dist_I)[:,None], np.hstack(max_I)[:,None]])
+    
+    
+def map_spherical_intensities(im_array, center_of_mass, coords, depth=20.0, voxel=5.23):
+    
+    import numpy as np 
+    n,p,q = im_array.shape    
+  
+    # in standard (x,y) convention. 
+    pt2 = center_of_mass.astype(np.int) # set the projection centre.
+    max_I = []    
+    dist_I = [] 
+    
+    for xpoi in coords:
+        
+        pt1 = xpoi.astype(np.int)                    # The coordinates of one pixel on the embryo surface
+
+        """
+        Create a line and project ( forsake the production of intermediate image and expensive boolean operations. )
+        """
+        dist_line = np.linalg.norm(pt1-pt2); dist_I.append(dist_line)
+        mask_coords = np.array([np.linspace(pt1[0], pt2[0], 2*int(dist_line)+1),
+                                np.linspace(pt1[1], pt2[1], 2*int(dist_line)+1),
+                                np.linspace(pt1[2], pt2[2], 2*int(dist_line)+1)]).T
+        mask_line = im_array[mask_coords[:,0].astype(np.int), mask_coords[:,1].astype(np.int), mask_coords[:,2].astype(np.int)]
+
+        # double check this. should only need the depth. 
+        distance_line = np.sqrt(np.sum (np.square (((mask_coords.astype(np.float64))-(pt1.astype(np.float64)))*[voxel,1,1]), axis=1))
+        mask_distance_less = distance_line<=(depth*voxel)   # Keeps only the values which are less than a given distance
+        
+        if len(mask_line[mask_distance_less]) > 0: 
+            max_pixel = np.mean(mask_line[mask_distance_less]) # mean projection
+        else:
+            max_pixel = 0
+#        max_pixel = np.max(mask_line[mask_distance_less]) # mean projection
+        max_I.append(max_pixel)
+        
+    return np.hstack([coords, np.hstack(dist_I)[:,None], np.hstack(max_I)[:,None]])
 
     
 def normalise_projection(emb_map, xzypI_order, max_order):
@@ -323,8 +421,8 @@ def interpolate_projection(mapped_coords, radii_x, return_no_interp=False):
     ''' 
         Interpolates the 2D image of the projection.  
             Inputs: 
-                    self.full_array_order_xpo
-                    self.emb_map
+                    mapped_coords
+                    radii_x
             Ouputs: 
                     none
             Returns: 
@@ -356,13 +454,13 @@ def interpolate_projection(mapped_coords, radii_x, return_no_interp=False):
    
         
  
- def gen_ref_phi_map(ref_coord_set):
-
+def gen_ref_phi_map(ref_coord_set):
     """
     Builds a unique cylindrical projection reference map based on a reference mapping.  
     """
-    uniq_x = np.unique(ref_coords[:,0])
-    ref_ordered = [ref_coords[ref_coords[:,0]==z] for z in uniq_x ]
+    import numpy as np 
+    uniq_x = np.unique(ref_coord_set[:,0])
+    ref_ordered = [ref_coord_set[ref_coord_set[:,0]==z] for z in uniq_x ]
     
     stats = np.array([[len(r), np.min(r[:,3]), np.max(r[:,3])] for r in ref_ordered])
     max_radii = int(np.max(stats[:,0]))
@@ -373,47 +471,129 @@ def interpolate_projection(mapped_coords, radii_x, return_no_interp=False):
         ref_map[i] = np.linspace(stats[i,1], stats[i,2], max_radii) # evenly place the angles # (assumes 0-2pi)
         
     return ref_map 
-
-
     
-def map_intensities(mapped_coords, query_I, shape, interp=True):
+    
+def gen_ref_polar_map(ref_coord_set):
     """
-    Given a coordinate mapping
+    Builds a unique polar projection reference map based on a reference set.  
+    """
+    import numpy as np 
+    uniq_x = np.unique(ref_coord_set[:,0])
+    uniq_y = np.unique(ref_coord_set[:,1])
+    
+    x_space = np.linspace(uniq_x[0], uniq_x[-1], len(uniq_x))
+    y_space = np.linspace(uniq_y[0], uniq_y[-1], len(uniq_y))
+    
+    ref_map_x, ref_map_y = np.meshgrid(x_space, y_space)
+ 
+    ref_map = np.dstack([ref_map_x, ref_map_y])
+    
+    return ref_map
+
+        
+def map_intensities(mapped_coords, query_I, shape, interp=True, distance=None, uniq_rows=None, uniq_cols=None):
+    """
+    Given a coordinate mapping map the intensities, by default it should take the distance info else it will take the last. Maximum and mean has issues 
+
+    # filters the mapped coordinates uniquely. 
+
     """
     from scipy.interpolate import griddata
-
-    if interp:
-        # m_coords = np.vstack([m for m in mapped_coords if len(m)>0])
-        m_coords = m_coords.astype(np.int) # convert to int. 
-
-        grid_x, grid_y = np.meshgrid(range(shape[1]), range(shape[0]))
-        mapped_image_interp = griddata(m_coords[:,::-1], query_I, (grid_x, grid_y), method='linear')
-
+    import numpy as np 
+    
+    #==============================================================================
+    #   Map the coordinate image and resolve duplicate mappings!     
+    #==============================================================================
+    # in image coordinate convention. 
+    m_coords = mapped_coords.astype(np.int) # convert to int. 
+    
+    if uniq_rows is None:
+        uniq_rows = np.unique(m_coords[:,0])
+    if uniq_cols is None:
+        uniq_cols = np.unique(m_coords[:,1])
+        
+    if distance is None:
         mapped_img = np.zeros(shape)
         mapped_img[m_coords[:,0], m_coords[:,1]] = query_I
+    else:
+        m_set = np.hstack([m_coords, distance[:,None], query_I[:,None]])
+        m_group_row = [m_set[m_set[:,0]==r] for r in uniq_rows] #sort into uniq_z
+        
+        mapped_img = []
+        for m in m_group_row:
+            col_sort = [m[m[:,1]==c,-2:] for c in uniq_cols] # get the intensity.
+            vals = []
+            for c in col_sort:
+                if len(c) > 0:
+                    vals.append(c[np.argmax(c[:,0]), -1])
+                else:
+                    vals.append(0) # no intensity
+            mapped_img.append(vals)
+        mapped_img = np.array(mapped_img)
+        
+    if interp:
+        
+        interp_coords = np.array(np.where(mapped_img)).T
+        interp_I = mapped_img[mapped_img>0]
+        
+        # grid interpolation        
+        im_shape = mapped_img.shape
+        grid_x, grid_y = np.meshgrid(range(im_shape[1]), range(im_shape[0]))
+        mapped_image_interp = griddata(interp_coords[:,::-1], interp_I, (grid_x, grid_y), method='linear', fill_value=0)
 
         return mapped_image_interp, mapped_img
 
     else:
-        mapped_img = np.zeros(shape)
-        # m_coords = np.vstack([m for m in mapped_coords if len(m)>0])
-        m_coords = m_coords.astype(np.int) # convert to int. 
-        
-        # how to handle non unique mapping? 
-        mapped_img[m_coords[:,0], m_coords[:,1]] = query_I
-        
+
         return mapped_img
     
 
 
 # function used by the map_coords_to_ref_coords_map, can be used directly if one already has the info. 
+# TO DO: generalise this to handle multiple coordinates. 
+def map_coords_to_ref_map_polar(query_coords_order, ref_map, map_index=[-2,-1]):
+    """
+    given a ref_map assigns the query coordinates onto the positions of the map using fast NN trees.
+        note query_coords are ordered.
+    """    
+    from sklearn.neighbors import NearestNeighbors
+    import numpy as np 
+    # define the tree
+    neigh = NearestNeighbors(n_neighbors=1, leaf_size=2, algorithm='kd_tree', n_jobs=4)
+    
+    if len(ref_map.shape) == 3: 
+        ref = ref_map.reshape(-1,ref_map.shape[-1])
+        row, col = np.indices(ref_map.shape[:2])
+    else:
+        ref = ref_map.reshape(-1,1)
+        row, col = np.indices(ref_map.shape)
+    
+    query = query_coords_order[:, map_index]
+    
+    if len(query.shape) < 2:
+        query=query[:,None]
+ 
+    print ref.shape
+    print 'nearest neighbour learning'
+    neigh.fit(ref)
+    print 'finding nearest neighbours'
+    neighbor_index = neigh.kneighbors(query, return_distance=False)
+    
+    mapped_coords_row = row.ravel()[neighbor_index]
+    mapped_coords_col = col.ravel()[neighbor_index]
+
+    mapped_coords = np.hstack([mapped_coords_col, mapped_coords_row])
+    
+    return mapped_coords
+    
+    
 def map_coords_to_ref_map(query_coords_order, ref_map):
     """
     given a ref_map assigns the query coordinates onto the positions of the map using fast NN trees.
         note query_coords are ordered.
     """    
     from sklearn.neighbors import NearestNeighbors
-    
+    import numpy as np 
     # define the tree
     neigh = NearestNeighbors(n_neighbors=1)
     
@@ -441,25 +621,59 @@ def map_coords_to_ref_coords_map_cylindrical(query_coords, ref_params):
     query_coords_derefer = query_coords.copy()
     query_coords_derefer[:,1] = query_coords[:,1] - COM[1]
     query_coords_derefer[:,2] = query_coords[:,2] - COM[2] 
-    query_phi = np.arctan2(test_coords_derefer[:,2], test_coords_derefer[:,1])
+    query_phi = np.arctan2(query_coords_derefer[:,2], query_coords_derefer[:,1])
     query_coords_ = np.hstack([query_coords, query_phi[:,None]])
 
+    
     ref_coords = ref_params['map_coords']
     ref_radii = ref_params['radii']
     ref_max_radii = ref_params['max_radii']
     ref_map = gen_ref_phi_map(ref_coords) # this #ref map is purely generated by a linear interpolation between min and max.. ( of the angles )
    
 
-    uniq_z = np.unique(ref_coords[:,0])
+    uniq_z = np.unique(ref_coords[:,0])    
     query_coords_rearrange = [query_coords_[query_coords_[:,0]==z] for z in uniq_z ] 
-   
+    
     # map coordinates. 
     mapped_coords = map_coords_to_ref_map(query_coords_rearrange, ref_map) 
-
+    
     # unflatten the output. 
-    mapped_coords = np.vstack([m for m in mapped_coords if len(m)>0]).T
-    query_coords_out = np.vstack([q for q in query_coords_rearrange if len(q)>0]).T
+    mapped_coords = np.vstack([m for m in mapped_coords if len(m)>0])
+    query_coords_out = np.vstack([q for q in query_coords_rearrange if len(q)>0])
 
+    
     return np.hstack([query_coords_out, mapped_coords]), ref_map
+    
+    
+def map_coords_to_ref_coords_map_polar(query_coords, ref_params, pole='neg'):
+    """
+    given a ref_map assigns the query coordinates onto the positions of the map using fast NN trees.
+        note query_coords are ordered.
+    """    
+    import numpy as np 
+    import Geometry.geometry as geom
+
+    COM = ref_params['center']
+    query_coords_derefer = query_coords.copy()
+
+    """
+    project into the polar space.
+    """
+    r,lat,lon = geom.xyz_2_longlat(query_coords_derefer[:,0],query_coords_derefer[:,1],query_coords_derefer[:,2], center=COM) # put into geometrical coordinates.
+    x_p, y_p, sign = geom.azimuthal_ortho_proj3D([r.ravel(),lat.ravel(), lon.ravel()], pole=pole)
+    
+    """
+    Generate reference x,y map. 
+    """
+    # use the reference polar points. 
+    ref_coords = ref_params['map_coords']
+    ref_map = gen_ref_polar_map(ref_coords) # this #ref map is purely generated by a linear interpolation between min and max.. ( of the angles )
+
+    query_coords_derefer = np.hstack([query_coords_derefer[sign], x_p[:,None], y_p[:,None]])
+    
+    # map coordinates to the ref map. 
+    mapped_coords = map_coords_to_ref_map_polar(query_coords_derefer, ref_map, map_index=[-2,-1])
+     
+    return np.hstack([query_coords_derefer, mapped_coords]), ref_map
 
     

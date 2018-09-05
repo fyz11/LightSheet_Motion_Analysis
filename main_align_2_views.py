@@ -17,14 +17,13 @@ if __name__=="__main__":
     import Registration.registration as registration
     from skimage.exposure import rescale_intensity 
     
-    
     import Unzipping.unzip as uzip
     import scipy.io as spio 
     import os
    
 
     dataset_folder = '../../Data/Holly/czifile_test_tiff'
-    out_view_aligned_folder = os.path.join(dataset_folder, 'view_aligned'); fio.mkdir(out_view_aligned_folder)
+    out_view_aligned_folder = os.path.join(dataset_folder, 'view_aligned3'); fio.mkdir(out_view_aligned_folder)
     
     
     """

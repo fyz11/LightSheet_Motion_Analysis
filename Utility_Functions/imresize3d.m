@@ -26,8 +26,8 @@ if(exist('tsize', 'var')&&~isempty(tsize)),  scale=(tsize./size(V)); end
 
 % Make transformation structure   
 T = makehgtform('scale',scale);
-%tform = maketform('affine', T);
-tform = affine3d(T);
+tform = maketform('affine', T);
+%tform = affine3d(T);
 
 % Specify resampler
 R = makeresampler(ntype, npad);

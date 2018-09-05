@@ -10,11 +10,14 @@ function [T, vargout] = register3D_SIFT(im1, im2, downsample, lib_path, return_i
     im1_ = imresize3d(im1, 1./downsample_factor); 
     im2_ = imresize3d(im2, 1./downsample_factor);
     
+    size(im1_)
+    size(im2_)
+    
     %% registering with 3D sift library.
     'registering with sift'
     [A, matchSrc, matchRef] = registerSift3D(im1_,im2_); % (src,ref), matches ref->src
-    A(:,4) = A(:,4) * downsample_factor;
-    
+    A(1:3,4) = A(1:3,4) * downsample_factor;
+   
     if return_img == 1
         'applying transform in matlab'
         %%% now apply the transform A ( 4x3 matrix giving affine transformatin from ref to src)
@@ -30,7 +33,7 @@ function [T, vargout] = register3D_SIFT(im1, im2, downsample, lib_path, return_i
         %% imwarp, noting that matlab subscript uses (y,x,z) but applies geometric (x,y,z)!
         registered = imwarp(permute(im2, [2,1,3]), A_tfm, 'OutputView',imref3d([size(im1,2), size(im1,1), size(im1,3)]));
         registered = uint8(permute(registered, [2,1,3])); % permute back
-        vargout{1} = registered
+        vargout{1} = registered;
     end
 
     T=A; %save out the transform

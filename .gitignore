@@ -12,6 +12,7 @@ test*.py
 Test*.py
 test*.m
 Test*.m
+main.*py
 
 main.py
 main_final.py
