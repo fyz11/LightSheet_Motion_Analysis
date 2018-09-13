@@ -39,10 +39,10 @@ if __name__=="__main__":
     """
     Create output folders.
     """
-#    out_pre_folder = os.path.join(dataset_folder, 'preprocess_full'); fio.mkdir(out_pre_folder)
-    out_pre_folder = os.path.join(dataset_folder, 'enhance_scaled'); fio.mkdir(out_pre_folder)
+    out_pre_folder = os.path.join(dataset_folder, 'preprocess_full'); fio.mkdir(out_pre_folder)
+#    out_pre_folder = os.path.join(dataset_folder, 'enhance_scaled'); fio.mkdir(out_pre_folder)
 #    out_aligned_folder = os.path.join(dataset_folder, 'aligned_full'); fio.mkdir(out_aligned_folder)
-    out_aligned_folder = os.path.join(dataset_folder, 'aligned_sift-enh-test-correct'); fio.mkdir(out_aligned_folder)
+    out_aligned_folder = os.path.join(dataset_folder, 'aligned_sift-enh-test-correct1'); fio.mkdir(out_aligned_folder)
 #    out_aligned_folder2 = os.path.join(dataset_folder, 'aligned2_full'); fio.mkdir(out_aligned_folder2)
 #    out_flow_folder = os.path.join(dataset_folder, 'optflow_full'); fio.mkdir(out_flow_folder)
 #    out_track_folder = os.path.join(dataset_folder, 'tracks_full'); fio.mkdir(out_track_folder)
@@ -73,41 +73,41 @@ if __name__=="__main__":
 ##==============================================================================
 ###   Registration: Register dataset. (similarity transform) (calls matlab for now.), how to go to something else?
 ###==============================================================================
-    dataset_files = fio.load_dataset(out_pre_folder, ext='.tif', split_key='TP_',split_position=1)
-    
-    """
-    Declare similarity registration settings
-    """
-    reg_config_similarity = {'downsample' :4.0, 
-                             'modality' :'multimodal', 
-                             'max_iter':500,
-                             'type': 'similarity',
-                             'return_img':0}
-    
-    sim_tforms = registration.matlab_register_similarity_batch(dataset_files, out_pre_folder, out_aligned_folder, reg_config_similarity, timer=True, debug=True)
-    
-#==============================================================================
-#   Registration: Register dataset. (similarity transform - no shear). we try using SIFT.
-#==============================================================================
 #    dataset_files = fio.load_dataset(out_pre_folder, ext='.tif', split_key='TP_',split_position=1)
 #    
 #    """
 #    Declare similarity registration settings
 #    """
-##    reg_config_similarity = {'downsample' :4.0, 
-##                             'modality' :'multimodal', 
-##                             'max_iter':500,
-##                             'type': 'similarity'}
-#    # mode 2 = sequential registration mode. 
-#    reg_config = {'downsample': 4., #8  ant
-#                  'lib_path': '/home/felix/Documents/Software/SIFT3D/build/lib/wrappers/matlab', 
-#                  'mode':2,
-#                  'return_img':0}
+#    reg_config_similarity = {'downsample' :4.0, 
+#                             'modality' :'multimodal', 
+#                             'max_iter':500,
+#                             'type': 'similarity',
+#                             'return_img':0}
 #    
-##    sim_tforms = registration.matlab_register_similarity_batch(dataset_files, out_pre_folder, out_aligned_folder, reg_config_similarity, timer=False, debug=True)
-#    tforms = registration.register3D_SIFT_wrapper(dataset_files[:5], out_pre_folder, out_aligned_folder, reg_config)
+#    sim_tforms = registration.matlab_register_similarity_batch(dataset_files, out_pre_folder, out_aligned_folder, reg_config_similarity, timer=True, debug=True)
+    
+#==============================================================================
+#   Registration: Register dataset. (similarity transform - no shear). we try using SIFT.
+#==============================================================================
+    dataset_files = fio.load_dataset(out_pre_folder, ext='.tif', split_key='TP_',split_position=1)
+    
+    """
+    Declare similarity registration settings
+    """
+#    reg_config_similarity = {'downsample' :4.0, 
+#                             'modality' :'multimodal', 
+#                             'max_iter':500,
+#                             'type': 'similarity'}
+    # mode 2 = sequential registration mode. 
+    reg_config = {'downsample': 4., #8  ant
+                  'lib_path': '/home/felix/Documents/Software/SIFT3D/build/lib/wrappers/matlab', 
+                  'mode':2,
+                  'return_img':0}
+    
+#    sim_tforms = registration.matlab_register_similarity_batch(dataset_files, out_pre_folder, out_aligned_folder, reg_config_similarity, timer=False, debug=True)
+    tforms = registration.register3D_SIFT_wrapper(dataset_files[5:7], out_pre_folder, out_aligned_folder, reg_config)
 
-#
+
 #    def combine_tforms(tform1, tform2):
 #        
 #        mat1 = tform1[:3,:3]

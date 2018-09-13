@@ -14,7 +14,7 @@ if __name__=="__main__":
     import Utility_Functions.stack as stack
     from Visualisation.grid_img import viz_grid
     import pylab as plt 
-    import Registration.registration as registration
+    import Registration.registration_new as registration
     from skimage.exposure import rescale_intensity 
     
     import Unzipping.unzip as uzip
@@ -23,7 +23,7 @@ if __name__=="__main__":
    
 
     dataset_folder = '../../Data/Holly/czifile_test_tiff'
-    out_view_aligned_folder = os.path.join(dataset_folder, 'view_aligned3'); fio.mkdir(out_view_aligned_folder)
+    out_view_aligned_folder = os.path.join(dataset_folder, 'view_aligned-t'); fio.mkdir(out_view_aligned_folder)
     
     
     """
@@ -39,12 +39,13 @@ if __name__=="__main__":
     processfiles = np.hstack(view_pair_files)
    
     reg_config = {'downsample': 8., 
-                  'lib_path': '../Pipeline/SIFT3D/build/lib/wrappers/matlab/', 
+#                  'lib_path': '../Pipeline/SIFT3D/build/lib/wrappers/matlab/', 
+                  'lib_path': '/home/felix/Documents/Software/SIFT3D/build/lib/wrappers/matlab', 
                   'mode':1,
                   'return_img':0}
                   
     # register views: mode=1
-    tforms = registration.register3D_SIFT_wrapper(dataset_files, dataset_folder, out_view_aligned_folder, reg_config)
+    tforms = registration.register3D_SIFT_wrapper(processfiles, dataset_folder, out_view_aligned_folder, reg_config)
 
 
 

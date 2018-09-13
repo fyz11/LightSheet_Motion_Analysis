@@ -10,14 +10,15 @@ function [T, vargout] = register3D_SIFT(im1, im2, downsample, lib_path, return_i
     im1_ = imresize3d(im1, 1./downsample_factor); 
     im2_ = imresize3d(im2, 1./downsample_factor);
     
-    size(im1_)
-    size(im2_)
+    %% V. important ! rescale the image intensity.
+    im1_ = reshape(imadjust(im1_(:)), size(im1_)),;
+    im2_ = reshape(imadjust(im2_(:)), size(im2_)); % this does the same job as imadjustn
     
     %% registering with 3D sift library.
     'registering with sift'
     [A, matchSrc, matchRef] = registerSift3D(im1_,im2_); % (src,ref), matches ref->src
-    A(1:3,4) = A(1:3,4) * downsample_factor;
-   
+    A(1:3,4) = A(1:3,4) * downsample_factor; % correct the scaling due to downsampling.
+
     if return_img == 1
         'applying transform in matlab'
         %%% now apply the transform A ( 4x3 matrix giving affine transformatin from ref to src)

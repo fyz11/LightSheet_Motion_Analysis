@@ -42,7 +42,7 @@ def setup_dipy_register(nbins=50, metric='mutualinfo', sampling_prop=None, level
     
     return (static_grid2world, moving_grid2world), affreg
 
-    
+# this contains bugs in windows? 
 def dipy_register_translation(fixed, moving, reg_config=None, static_grid2world=None, moving_grid2world=None, affreg=None):
     
     if reg_config is not None:
@@ -143,7 +143,46 @@ def dipy_register_translation_batch(dataset_files, in_folder, out_folder, reg_co
 #   Matlab scripts for similarity transform (what of the dipy version? )
 #==============================================================================
 
-def matlab_register_similarity_batch(dataset_files, in_folder, out_folder, reg_config, timer=True, debug=False):
+def matlab_register(fixed_file, moving_file, save_file, reg_config):
+    
+    import matlab.engine
+    import os 
+    import scipy.io as spio 
+    eng = matlab.engine.start_matlab() 
+    
+    if reg_config['view'] is not None:
+        print('using initialisation')
+        # use initialisation. 
+        initial_tf = reg_config['initial_tf']
+        spio.savemat('tform.mat', {'tform':initial_tf.T}) # transpose for matlab 
+        
+        transform = eng.register3D_rigid_faster(fixed_file, moving_file, save_file, 
+                                                 'tform.mat', 1, reg_config['downsample'], 
+                                                 reg_config['modality'], reg_config['max_iter'], 
+                                                 reg_config['type'], 
+                                                 reg_config['return_img'], 
+                                                 nargout=1) 
+    else:
+        transform = eng.register3D_rigid_faster(fixed_file, moving_file, save_file, 
+                                                 'tform.mat', 0, reg_config['downsample'], 
+                                                 reg_config['modality'], reg_config['max_iter'], 
+                                                 reg_config['type'], 
+                                                 reg_config['return_img'], 
+                                                 nargout=1)     
+    transform = np.asarray(transform)
+    
+    if reg_config['return_img']!= 1:
+        im1 = fio.read_multiimg_PIL(fixed_file)
+        im2 = fio.read_multiimg_PIL(moving_file)
+        im2_ = np.uint8(tf.apply_affine_tform(im2.transpose(2,1,0), np.linalg.inv(transform), np.array(im1.shape)[[2,1,0]]))
+        im2_ = im2_.transpose(2,1,0) # flip back
+    
+        return transform, im2_
+    else:
+        return transform 
+        
+
+def matlab_register_batch(dataset_files, in_folder, out_folder, reg_config, debug=False):
     
     """
     Registers the similarity transformation 
@@ -153,6 +192,7 @@ def matlab_register_similarity_batch(dataset_files, in_folder, out_folder, reg_c
     import os
     import shutil
     import pylab as plt 
+    from tqdm import tqdm
     
     eng = matlab.engine.start_matlab() 
         
@@ -163,134 +203,47 @@ def matlab_register_similarity_batch(dataset_files, in_folder, out_folder, reg_c
     im1 = fio.read_multiimg_PIL(fixed_file)
     fio.save_multipage_tiff(im1, fixed_file.replace(in_folder, out_folder))
 
-    if timer:
-        from tqdm import tqdm
-        for i in tqdm(range(len(dataset_files)-1)):
+    for i in tqdm(range(len(dataset_files)-1)):
+    
+        moving_file = dataset_files[i+1]
+        save_file = moving_file.replace(in_folder, out_folder)
         
-            moving_file = dataset_files[i+1]
-            save_file = moving_file.replace(in_folder, out_folder)
-            
-            print fixed_file
-            print moving_file
-            transform = eng.register3D_rigid_faster(fixed_file, moving_file, save_file, 
-                                             'tform.mat', 0, reg_config['downsample'], 
-                                             reg_config['modality'], reg_config['max_iter'], 
-                                             reg_config['type'], 
-                                             reg_config['return_img'], 
-                                             nargout=1)        
-            
-            transform = np.asarray(transform) # (z,y,x) 
-            print transform
-            
-            if reg_config['return_img'] != 1:
-                im1 = fio.read_multiimg_PIL(fixed_file)
-                im2 = fio.read_multiimg_PIL(moving_file)
-                print im1.shape, im2.shape
-                im2_ = np.uint8(tf.apply_affine_tform(im2.transpose(2,1,0), np.linalg.inv(transform), np.array(im1.shape)[[2,1,0]]))
-                im2_ = im2_.transpose(2,1,0) # flip back
-                print 'saving'
-                print save_file
-                fio.save_multipage_tiff(im2_, save_file)
+        transform = eng.register3D_rigid_faster(str(fixed_file), str(moving_file), str(save_file), 
+                                         'tform.mat', 0, reg_config['downsample'], 
+                                         reg_config['modality'], reg_config['max_iter'], 
+                                         reg_config['type'], 
+                                         reg_config['return_img'], 
+                                         nargout=1)        
+        
+        transform = np.asarray(transform) # (z,y,x) 
+        
+#        if reg_config['return_img'] != 1: # this is too slow and disabled. 
+        im1 = fio.read_multiimg_PIL(fixed_file)
+        im2 = fio.read_multiimg_PIL(moving_file)
+        
+        im2_ = np.uint8(tf.apply_affine_tform(im2.transpose(2,1,0), np.linalg.inv(transform), np.array(im1.shape)[[2,1,0]]))
+        im2_ = im2_.transpose(2,1,0) # flip back
 
-                if debug:
-                    fig, ax = plt.subplots(nrows=1, ncols=2)
-                    imshowpair(ax[0], im1[im1.shape[0]//2], im2[im2.shape[0]//2])
-                    imshowpair(ax[1], im1[im1.shape[0]//2], im2_[im2_.shape[0]//2])
-                    
-                    fig, ax = plt.subplots(nrows=1, ncols=2)
-                    imshowpair(ax[0], im1[:,im1.shape[1]//2], im2[:,im2.shape[1]//2])
-                    imshowpair(ax[1], im1[:,im1.shape[1]//2], im2_[:,im2_.shape[1]//2])
+        fio.save_multipage_tiff(im2_, save_file)
 
-                    plt.show()
+        if debug:
+            fig, ax = plt.subplots(nrows=1, ncols=2)
+            imshowpair(ax[0], im1[im1.shape[0]//2], im2[im2.shape[0]//2]) 
+            imshowpair(ax[1], im1[im1.shape[0]//2], im2_[im2_.shape[0]//2])
             
-            fixed_file = dataset_files[i+1].replace(in_folder, out_folder)
-            tforms.append(transform)
-            
-#            print '+++'
-#    fixed = fio.read_multiimg_PIL(dataset_files[0]) # initialise the first as the reference. 
-#    
-#    tmp_folder = 'tmp'
-#    fio.mkdir(tmp_folder)
-#    
-#    spio.savemat(os.path.join(tmp_folder, 'im1.mat'), {'im1': fixed}) # save fixed temorary 
-#    
-#    # save this image into outfolder.
-#    fio.save_multipage_tiff(fixed, dataset_files[0].replace(in_folder, out_folder))
-#    
-#    tforms = []
-#    
-#    if timer:
-#        from tqdm import tqdm
-#        for i in tqdm(range(len(dataset_files)-1)):
-#        
-#            im2 = fio.read_multiimg_PIL(dataset_files[i+1])
-#            spio.savemat(os.path.join(tmp_folder, 'im2.mat'), {'im2': im2}) # save moving
-#            
-#            registered, transform = eng.register3D_rigid(os.path.join(tmp_folder, 'im1.mat'), os.path.join(tmp_folder, 'im2.mat'), 'tform.mat', 0, reg_config['downsample'], reg_config['modality'], reg_config['max_iter'], reg_config['type'], nargout=2)        
-#            
-#            registered = np.asarray(registered, dtype=np.uint8) # this data type conversion is critical. 
-#            transform = np.asarray(transform)
-#            
-#            print '\n'
-#            print transform
-#            
-#            # save this out 
-#            fio.save_multipage_tiff(registered, dataset_files[i+1].replace(in_folder, out_folder))
-#        
-#            if debug:
-#                fig, ax = plt.subplots(nrows=1, ncols=2)
-#                imshowpair(ax[0], fixed[fixed.shape[0]//2], im2[im2.shape[0]//2])
-#                imshowpair(ax[1], fixed[fixed.shape[0]//2], registered[registered.shape[0]//2])
-#                plt.show()
-#                fig, ax = plt.subplots(nrows=1, ncols=2)
-#                imshowpair(ax[0], fixed[:,fixed.shape[1]//2], im2[:,im2.shape[1]//2])
-#                imshowpair(ax[1], fixed[:,fixed.shape[1]//2], registered[:,registered.shape[1]//2])
-#                plt.show()
-#                print '===='
-#            
-#            
-#            fixed = registered.copy()
-#            
-#            # replace the previous temp
-#            spio.savemat(os.path.join(tmp_folder,'im1.mat'), {'im1': fixed}) # save fixed
-#            tforms.append(transform)
-            
-    else:
+            fig, ax = plt.subplots(nrows=1, ncols=2)
+            imshowpair(ax[0], im1[:,im1.shape[1]//2], im2[:,im2.shape[1]//2])
+            imshowpair(ax[1], im1[:,im1.shape[1]//2], im2_[:,im2_.shape[1]//2])
+
+            plt.show()
         
-        for i in range(len(dataset_files)-1):
-        
-            im2 = fio.read_multiimg_PIL(dataset_files[i+1])
-            spio.savemat(os.path.join(tmp_folder, 'im2.mat'), {'im2': im2}) # save moving
-            
-            registered, transform = eng.register3D_rigid(os.path.join(tmp_folder, 'im1.mat'), os.path.join(tmp_folder, 'im2.mat'), 'tform.mat', 0, reg_config['downsample'], reg_config['modality'], reg_config['max_iter'], reg_config['type'], nargout=2)        
-            print 'finished registering' 
-#            registered = np.asarray(registered, dtype=np.uint8) # this data type conversion is critical. (how to make it faster?)
-            registered = spio.loadmat('tmp/registered.mat')['movingRegistered']
-            transform = np.asarray(transform)
-            
-            # save this out 
-            fio.save_multipage_tiff(registered, dataset_files[i+1].replace(in_folder, out_folder))
-        
-            if debug:
-                fig, ax = plt.subplots(nrows=1, ncols=2)
-                imshowpair(ax[0], fixed[fixed.shape[0]//2], im2[im2.shape[0]//2])
-                imshowpair(ax[1], fixed[fixed.shape[0]//2], registered[registered.shape[0]//2])
-                plt.show()
-            
-            fixed = registered.copy()
-            
-            # replace the previous temp
-            spio.savemat(os.path.join(tmp_folder,'im1.mat'), {'im1': fixed}) # save fixed
-            tforms.append(transform)
-            
-            
-    # remove temp folder
-#    shutil.rmtree(tmp_folder)
+        fixed_file = dataset_files[i+1].replace(in_folder, out_folder)
+        tforms.append(transform)
             
     return tforms
     
     
-# for fast coarse translation adjustment. 
+# for fast coarse translation adjustment using dipy, but appears problematic?
 def align_centers(im1, im2):
     
     """
@@ -310,24 +263,49 @@ def align_centers(im1, im2):
     return im2_, c_of_mass.affine
 
     
+def COM_2d(im1, im2):
+    
+    """
+    grab center of mass of 2d images based on threholding. 
+    """
+    from scipy.ndimage.measurements import center_of_mass
+    from scipy.ndimage.morphology import binary_fill_holes
+    from skimage.filters import threshold_otsu
+    
+    mask1 = binary_fill_holes(im1>=threshold_otsu(im1))
+    mask2 = binary_fill_holes(im2>=threshold_otsu(im2))
+
+    return center_of_mass(mask1), center_of_mass(mask2)
+    
+    
 # function to join two volume stacks 
-def simple_join(stack1, stack2, cut_off=None):
+def simple_join(stack1, stack2, cut_off=None, blend=True, offset=10, weights=[0.7,0.3]):
     
     """
     stack1 and stack2 are assumed to be the same size. 
     """
-    combined_stack = np.zeros_like(stack1)
-    combined_stack[:cut_off] = stack1[:cut_off] 
-    combined_stack[cut_off:] = stack2[cut_off:] 
+    
+    if blend:
+        combined_stack = np.zeros_like(stack1)
+        combined_stack[:cut_off-offset] = stack1[:cut_off-offset]
+        combined_stack[cut_off-offset:cut_off] = weights[0]*stack1[cut_off-offset:cut_off]+weights[1]*stack2[cut_off-offset:cut_off]
+        combined_stack[cut_off:cut_off+offset] = weights[1]*stack1[cut_off:cut_off+offset]+weights[0]*stack2[cut_off:cut_off+offset]
+        combined_stack[cut_off+offset:] = stack2[cut_off+offset:]         
+    else:
+        combined_stack = np.zeros_like(stack1)
+        combined_stack[:cut_off] = stack1[:cut_off] 
+        combined_stack[cut_off:] = stack2[cut_off:] 
     
     return combined_stack
 
-    
-    
+
 #==============================================================================
 #   Wrapper for 3D sift registration for registering aligning multi-view and sequential datasets. 
 #==============================================================================
-def register3D_SIFT_wrapper(dataset_files, in_folder, out_folder, reg_config):
+#==============================================================================
+#   Wrapper for 3D sift registration for registering aligning multi-view and sequential datasets. 
+#==============================================================================
+def register3D_SIFT_wrapper(dataset_files, in_folder, out_folder, reg_config, reg_config_rigid=None):
     
     """
     Registers the similarity transformation exploiting the sift3D library.
@@ -345,15 +323,19 @@ def register3D_SIFT_wrapper(dataset_files, in_folder, out_folder, reg_config):
     import pylab as plt 
     import Visualisation.imshowpair as imshowpair
     from skimage.exposure import rescale_intensity
+    import sys
     
 #     start the python matlab engine.
     eng = matlab.engine.start_matlab() 
-    
     fio.mkdir(out_folder) # check that the output folder exists, create if does not exist.  
     
-    print 'registration'
-    
     if reg_config['mode'] == 1:
+        
+        if sys.version_info.major == 2:
+            print 'running sequential registration'
+        if sys.version_info.major == 3:
+            print ('running sequential registration')
+        
         tforms = []
         translate_matrixs = []
         
@@ -361,82 +343,91 @@ def register3D_SIFT_wrapper(dataset_files, in_folder, out_folder, reg_config):
         
         for i in tqdm(range(len(dataset_files)//2)):
             
-            t1 = time.time()
             im1file = dataset_files[2*i]
             im2file = dataset_files[2*i+1]
             
-            print 'registering SIFT'
-            tmatrix = eng.register3D_SIFT_wrapper(im1file, im2file, datasetsave_files[i], 
+            tmatrix = eng.register3D_SIFT_wrapper(str(im1file), str(im2file), str(datasetsave_files[i]), 
                                               reg_config['downsample'], reg_config['lib_path'], reg_config['return_img'])
             tmatrix = np.asarray(tmatrix)
             tforms.append(tmatrix)
-            print tmatrix
+            
             """
             if matlab doesn't save matrix then we use python to do so.
             """
             if reg_config['return_img']!=1:
                 
-                print 'reading image'
                 im1 = fio.read_multiimg_PIL(im1file)
                 im2 = fio.read_multiimg_PIL(im2file)
                                 
-                print 'finished reading image' 
-                # restrict the tranformation to affine. 
+                
                 affine = np.zeros((4,4))
                 affine[:-1,:] = tmatrix.copy()
                 affine[-1] = np.array([0,0,0,1])
                 
-                # decomposition to zero out scaling and shear (rigid transformation) 
-                T,R,Z,S = decompose44(affine)
-                affine = compose(T,R, np.ones(3), np.zeros(3)) # no scaling, no shears.
+                """
+                Allow different types of transformation. 
+                """
+                # decomposition (only if affine is not needed.)
+                T,R,Z,S = decompose44(affine) # S is shear!
                 
-                print 'affine matrix'
-                print affine
-                
-                im2 = np.uint8(tf.apply_affine_tform(im2, np.linalg.inv(affine), np.array(im1.shape)))
-#                im2 = im2.transpose(2,0,1)
+                if reg_config['type'] == 'similarity':
+                    affine = compose(T, R, Z, np.zeros(3))
+                if reg_config['type'] == 'rigid':
+                    affine = compose(T, R, np.ones(3), np.zeros(3))
+                if reg_config['type'] == 'translation':
+                    affine = compose(T, np.eye(3), np.ones(3), np.zeros(3))
 
-                # realign and correct the translation artifact. 
-                im2, translate_matrix = align_centers(im1, im2)
+                im2_ = np.uint8(tf.apply_affine_tform(im2, np.linalg.inv(affine), np.array(im1.shape)))
+                fio.save_multipage_tiff(im2_, datasetsave_files[i])
+                
+#                """
+#                Translation correction.
+#                """                
+                translate_matrix, im2_ = matlab_register(str(im1file), str(datasetsave_files[i]), str(datasetsave_files[i]), reg_config_rigid)
                 translate_matrixs.append(translate_matrix)
+                
+                fio.save_multipage_tiff(im2_, datasetsave_files[i])
+                
+                fig, ax = plt.subplots()
+                imshowpair.imshowpair(ax, im1[im1.shape[0]//2], im2_[im2_.shape[0]//2])                
+                fig, ax = plt.subplots()
+                imshowpair.imshowpair(ax, im1[:,im1.shape[1]//2], im2_[:,im2_.shape[1]//2])
+                plt.show()
 
-                print 'saving'
-                fio.save_multipage_tiff(im2, datasetsave_files[i])
-
-            t2 = time.time()
-            
-            print 'elapsed time: ', t2-t1
-    
             
     if reg_config['mode'] == 2:
-        print 'running sequential registration'
+        
+        if sys.version_info.major == 2:
+            print 'running sequential registration'
+        if sys.version_info.major == 3:
+            print ('running sequential registration')
+            
         datasetsave_files = np.hstack([f.replace(in_folder, out_folder) for f in dataset_files])
         translate_matrixs = []
 
         if reg_config['return_img'] == 1:
             tforms = eng.register3D_SIFT_wrapper_batch(dataset_files, datasetsave_files, reg_config['downsample'], reg_config['lib_path'], reg_config['mode'])
         else:
-            print 'running python mode'
+            
             tforms = []
+            
             # set the fixed image. 
             fixed = fio.read_multiimg_PIL(dataset_files[0])
-            fio.save_multipage_tiff(fixed, datasetsave_files[0])
-            
+            fio.save_multipage_tiff(fixed, datasetsave_files[0])            
             fixed_file = datasetsave_files[0]
+
             for i in tqdm(range(len(dataset_files)-1)):
                 
                 """
                 we will first figure out all the sequential transforms. 
                 """
-#                fixed_file = dataset_files[i]
                 moving_file = dataset_files[i+1]
                 
-                print 'registering SIFT'
-                tmatrix = eng.register3D_SIFT_wrapper(fixed_file, moving_file, datasetsave_files[i+1], 
+#                print('registering SIFT')
+                tmatrix = eng.register3D_SIFT_wrapper(str(fixed_file), str(moving_file), str(datasetsave_files[i+1]), 
                                               reg_config['downsample'], reg_config['lib_path'], reg_config['return_img'])
                 tmatrix = np.asarray(tmatrix)
-#                tforms.append(tmatrix)
-    
+
                 """
                 Apply the transforms.
                 """
@@ -447,56 +438,45 @@ def register3D_SIFT_wrapper(dataset_files, in_folder, out_folder, reg_config):
                 affine[:-1,:] = tmatrix.copy()
                 affine[-1] = np.array([0,0,0,1])
                 
-                print affine 
+                # decomposition (only if affine is not needed.)
+                T,R,Z,S = decompose44(affine) # S is shear!
                 
-#                # decomposition
-#                T,R,Z,S = decompose44(affine) # S is shear!
-#                affine = compose(T, R, np.ones(3), np.zeros(3)) # constant scale, allow shear.(since there is wiggle?)
-            
+                if reg_config['type'] == 'similarity':
+                    affine = compose(T, R, Z, np.zeros(3))
+                if reg_config['type'] == 'rigid':
+                    affine = compose(T, R, np.ones(3), np.zeros(3))
+                if reg_config['type'] == 'translation':
+                    affine = compose(T, np.eye(3), np.ones(3), np.zeros(3))
+                
                 tforms.append(affine)
-                print 'compose affine'
-                print affine 
-                print 'applying transform' #(im2.transpose(1,2,0))
                 im2 = np.uint8(tf.apply_affine_tform(im2, np.linalg.inv(affine), np.array(im1.shape)))
-#                im2 = im2.transpose(2,0,1)
-                print im1.shape, im2.shape
-#                 # realign and correct the translation artifact. 
-                print 'realigning centers'
-#                im2, translate_matrix = align_centers(im1, im2)
-#                translate_matrixs.append(translate_matrix)
                 translate_matrixs.append(affine)
 
                 fio.save_multipage_tiff(im2, datasetsave_files[i+1])
-                comb = imshowpair.checkerboard_imgs(im1[:,im1.shape[1]//2], im2[:,im2.shape[1]//2], grid=(10,10))
                 
-                plt.figure()
-                plt.imshow(rescale_intensity(comb/255.))
+                
+                fig, ax = plt.subplots()
+                imshowpair.imshowpair(ax, im1[im1.shape[0]//2], im2[im2.shape[0]//2])                
+                fig, ax = plt.subplots()
+                imshowpair.imshowpair(ax, im1[:,im1.shape[1]//2], im2[:,im2.shape[1]//2])
                 plt.show()
                 
-                comb = imshowpair.checkerboard_imgs(im1[im1.shape[0]//2], im2[im2.shape[0]//2], grid=(50,50))
-                
-                plt.figure()
-                plt.imshow(rescale_intensity(comb/255.))
-                plt.show()
-                                
-                
+                # update the fixed file. 
                 fixed_file = datasetsave_files[i+1]
 
     tforms = np.array(tforms)
     translate_matrixs = np.array(translate_matrixs)
 
-    spio.savemat(os.path.join(out_folder, 'tforms_view_align.mat'), {'files': dataset_files,
-                                                                    'config': reg_config,  
-                                                                    'view_tforms': tforms,
-                                                                    'translate_tforms':translate_matrixs})
-
-    """
-    Stop the matlab engine? to prevent hangups. 
-    """
-#    eng.quit()
-    
+    if reg_config['mode'] == 1:
+        spio.savemat(os.path.join(out_folder, 'tforms_view_align.mat'), {'files': dataset_files,
+                                                                        'config': reg_config,                                            'view_tforms': tforms,
+                                                                        'translate_tforms':translate_matrixs})
+    else:
+        spio.savemat(os.path.join(out_folder, 'tforms_time_align.mat'), {'files': dataset_files,
+                                                                        'config': reg_config,  
+                                                                        'view_tforms': tforms,
+                                                                        'translate_tforms':translate_matrixs})
     return (tforms, translate_matrixs)
-    
     
     
     
