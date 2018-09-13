@@ -12,11 +12,13 @@ function [transform] = register3D_rigid_faster(im1file,im2file, outsavefile, tra
     img1_ = imresize3d(im1, 1./downsample_factor);
     img2_ = imresize3d(im2, 1./downsample_factor);
 
-%     img1_ = imresize(im1, 1./downsample_factor);
-%     img2_ = imresize(im2, 1./downsample_factor);
+    % contrast adjustment for best results.
+    im1_ = reshape(imadjust(im1_(:)), size(im1_)),;
+    im2_ = reshape(imadjust(im2_(:)), size(im2_)); % this does the same job as imadjustn
     
     [optimizer, metric] = imregconfig(mode);
     optimizer.MaximumIterations = iterations;
+    optimizer.InitialRadius = optimizer.InitialRadius/3.5; % this appears more stable, c.f. the documentation in matlab for aligning medical images.
     
     % do we initialise or not?
     if initialise==1
