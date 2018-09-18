@@ -8,6 +8,41 @@ Created on Fri Aug 31 09:53:00 2018
 
 import numpy as np 
 
+
+def get_rotation_x(theta):
+    
+    R_z = np.zeros((4,4))
+    R_z[-1:] = np.array([0,0,0,1])
+    
+    R_z[:-1,:-1] = np.array([[1,0,0],
+                   [0, np.cos(theta), -np.sin(theta)], 
+                   [0, np.sin(theta), np.cos(theta)]])
+    
+    return R_z
+    
+def get_rotation_y(theta):
+    
+    R_z = np.zeros((4,4))
+    R_z[-1:] = np.array([0,0,0,1])
+    
+    R_z[:-1,:-1] = np.array([[np.cos(theta), 0, np.sin(theta)],
+                   [0, 1, 0], 
+                   [-np.sin(theta), 0, np.cos(theta)]])
+    
+    return R_z
+    
+def get_rotation_z(theta):
+    
+    R_z = np.zeros((4,4))
+    R_z[-1:] = np.array([0,0,0,1])
+    
+    R_z[:-1,:-1] = np.array([[np.cos(theta), -np.sin(theta), 0],
+                   [np.sin(theta), np.cos(theta), 0], 
+                   [0, 0, 1]])
+    
+    return R_z
+
+
 def xyz_2_spherical(x,y,z, center=None):
     
     if center is None:
