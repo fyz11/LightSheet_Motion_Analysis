@@ -331,10 +331,7 @@ def register3D_SIFT_wrapper(dataset_files, in_folder, out_folder, reg_config, re
     
     if reg_config['mode'] == 1:
         
-        if sys.version_info.major == 2:
-            print 'running sequential registration'
-        if sys.version_info.major == 3:
-            print ('running sequential registration')
+        print ('running sequential registration')
         
         tforms = []
         translate_matrixs = []
@@ -397,10 +394,7 @@ def register3D_SIFT_wrapper(dataset_files, in_folder, out_folder, reg_config, re
             
     if reg_config['mode'] == 2:
         
-        if sys.version_info.major == 2:
-            print 'running sequential registration'
-        if sys.version_info.major == 3:
-            print ('running sequential registration')
+        print ('running sequential registration')
             
         datasetsave_files = np.hstack([f.replace(in_folder, out_folder) for f in dataset_files])
         translate_matrixs = []

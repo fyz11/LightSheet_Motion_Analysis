@@ -407,7 +407,7 @@ def fit_spline(x,y, smoothing=None):
     return interp_s, int(np.max(interp_s))
     
 
-def compute_cylindrical_statistics(contour_mask, coords, smoothing=None):
+def compute_cylindrical_statistics(contour_mask, coords, smoothing=None, radial_estimate_start=None):
     
     """
     Compute statistics required for projection 
@@ -420,6 +420,10 @@ def compute_cylindrical_statistics(contour_mask, coords, smoothing=None):
     # compute the maximum circumference. 
     axial_s = np.hstack([np.sum(skeletonize(cnt)>0) for cnt in contour_mask]) 
     axial_s_smooth, max_s = fit_spline(np.arange(len(axial_s)), axial_s, smoothing=smoothing)
+    
+    if radial_estimate_start is not None:
+        max_s = np.max(axial_s_smooth[radial_estimate_start:]) # only take from a range onward.
+    
     
     axial_phi = np.arctan2(coords[:,2]-center[2],  coords[:,1]-center[1])
     axial_r = np.sqrt(np.sum((coords[:,1:]-center[1:][None,:])**2, axis=1))
@@ -555,8 +559,8 @@ def build_mapping_space(ref_coord_set, ranges=None, shape=None):
         x_space = np.linspace(uniq_x[0], uniq_x[-1], len(uniq_x))
         y_space = np.linspace(uniq_y[0], uniq_y[-1], len(uniq_y))
     else:
-        x_space = np.linspace(uniq_x[0], uniq_x[1], shape[1])
-        y_space = np.linspace(uniq_y[0], uniq_y[1], shape[0])
+        x_space = np.linspace(uniq_x[0], uniq_x[1], shape[0])
+        y_space = np.linspace(uniq_y[0], uniq_y[1], shape[1])
     
     # build the space. 
     ref_map_x, ref_map_y = np.meshgrid(x_space, y_space)

@@ -117,10 +117,8 @@ def correct_axial_tilt(vol, I_thresh=10, ksize=3, mode='pca', pole='S', mask=Non
         angle_x = -np.sign(angle_x) * (np.pi-np.abs(angle_x))
 
     
-    if sys.version_info.major == 3:
-        print('volumed is tilted by: ', 'angle_x-', angle_x/np.pi*180, 'angle_y-', angle_y/np.pi*180)
-    if sys.version_info.major == 2:
-        print 'volumed is tilted by: ', 'angle_x-', angle_x/np.pi*180, 'angle_y-', angle_y/np.pi*180
+    print('volumed is tilted by: ', 'angle_x-', angle_x/np.pi*180, 'angle_y-', angle_y/np.pi*180)
+
         
     # construct the correction matrix and transform the image. 
     imshape = vol.shape

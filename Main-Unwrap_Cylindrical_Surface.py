@@ -39,6 +39,9 @@ for i in tqdm(range(len(dataset_files))[1:3]):
     
     im_array = fio.read_multiimg_PIL(dataset_files[i])
     im_array = im_array.transpose(1,0,2)
+    
+    
+    # 3d downsample scaling. 
     """
     Tilt correction if need be.... 
     """
@@ -79,7 +82,7 @@ for i in tqdm(range(len(dataset_files))[1:3]):
     coords = np.array(np.where(contour_mask > 0)).T
     center = [np.mean(coords[:,0]), np.mean(coords[:,1]), np.mean(coords[:,2])]
     
-    # resample the points !. 
+    # resample the points !. ( optional requires networkx ! ) 
 #    coords = meshtools.create_clean_mesh_points(im_array, contour_coords, n_pts=100, kind='linear', min_pts=5, eps=1, alpha=[1000,1000])
     
 # =============================================================================

@@ -55,7 +55,7 @@ def concave(points,alpha_x=150,alpha_y=250):
     from scipy.spatial import Delaunay, ConvexHull
     import networkx as nx
     
-    points = [(i[0],i[1]) if type(i) <> tuple else i for i in points]
+    points = [(i[0],i[1]) if type(i) != tuple else i for i in points]
     de = Delaunay(points)
     dec = []
     a = alpha_x
