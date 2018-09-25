@@ -129,7 +129,25 @@ def azimuthal_ortho_proj3D(latlong, pole='pos'):
     
     # determine clipping points
     if pole == 'pos':
-        select = lat < 0
+        select = lat <= 0
     else:
-        select = lat > 0 
+        select = lat >= 0 
     return x[select], y[select], select 
+
+
+def azimuthal_equidistant(latlong, lat1=0, lon0=0, center=None):
+    
+    r, lat, lon = latlong
+
+    cos_c = np.sin(lat1)*np.sin(lat) + np.cos(lat1)*np.cos(lat)*np.cos(lon-lon0)
+    c = np.arccos(cos_c)
+    k_ = c/np.sin(c)
+    
+    x_p = k_ * np.cos(lat) * np.sin(lon-lon0)
+    y_p = k_ * (np.cos(lat1)*np.sin(lat) - np.sin(lat1)*np.cos(lat)*np.cos(lon-lon0))
+
+    return r*x_p, r*y_p 
+    
+    
+    
+

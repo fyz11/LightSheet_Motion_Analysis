@@ -146,7 +146,6 @@ def dipy_register_translation_batch(dataset_files, in_folder, out_folder, reg_co
 def matlab_register(fixed_file, moving_file, save_file, reg_config):
     
     import matlab.engine
-    import os 
     import scipy.io as spio 
     eng = matlab.engine.start_matlab() 
     
@@ -305,6 +304,40 @@ def simple_join(stack1, stack2, cut_off=None, blend=True, offset=10, weights=[0.
 #==============================================================================
 #   Wrapper for 3D sift registration for registering aligning multi-view and sequential datasets. 
 #==============================================================================
+def register3D_SIFT(infile1, infile2, reg_config, reg_config_rigid=None):
+        
+    """
+    this registers once with SIFT and returns transformations. 
+    """
+    import matlab.engine
+    eng = matlab.engine.start_matlab()
+    
+    # add in additional options for modifying. 
+    tmatrix = eng.register3D_SIFT_wrapper(str(infile1), str(infile2), str('blank'), 
+                                      reg_config['downsample'], reg_config['lib_path'], reg_config['return_img'], reg_config['nnthresh'])
+    tmatrix = np.asarray(tmatrix)
+    
+    # return the matrix. 
+    affine = np.zeros((4,4))
+    affine[:-1,:] = tmatrix.copy()
+    affine[-1] = np.array([0,0,0,1])
+    
+    """
+    Allow different types of transformation. 
+    """
+    # decomposition (only if affine is not needed.)
+    T,R,Z,S = decompose44(affine) # S is shear!
+    
+    if reg_config['type'] == 'similarity':
+        affine = compose(T, R, Z, np.zeros(3))
+    if reg_config['type'] == 'rigid':
+        affine = compose(T, R, np.ones(3), np.zeros(3))
+    if reg_config['type'] == 'translation':
+        affine = compose(T, np.eye(3), np.ones(3), np.zeros(3))
+        
+    return affine
+
+
 def register3D_SIFT_wrapper(dataset_files, in_folder, out_folder, reg_config, reg_config_rigid=None):
     
     """

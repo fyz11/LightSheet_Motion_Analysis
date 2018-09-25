@@ -7,6 +7,7 @@ Created on Tue Aug  7 12:01:36 2018
 
 Reusable Functions to do unzipping of embryo.
 """
+import numpy as np 
 
 def keep_largest_component(mask3D):
     
@@ -28,7 +29,6 @@ def remove_small_objects( mask3D, minsize=100):
 
     import skimage.morphology as morph
     from scipy.ndimage.morphology import binary_fill_holes
-    import numpy as np 
     
     st = []
     
@@ -41,26 +41,30 @@ def remove_small_objects( mask3D, minsize=100):
 def segment_embryo(im_array, I_thresh=10, ksize=3, minsize=100, apply_morph=True):
     
     """
+    a quick and dirty 3d segmentation.
     im_array : grayscale 3d volume
     """
     from skimage.morphology import ball, binary_closing, binary_dilation
+    from scipy.ndimage.morphology import binary_fill_holes
     
     n_z, n_y, n_x = im_array.shape
     
     mask = im_array >= I_thresh
     mask = remove_small_objects(mask, minsize)
+    mask = np.concatenate([binary_fill_holes(m)[None,:] for m in mask], axis=0) 
     
     if apply_morph:
         mask = binary_closing(mask, ball(ksize))
         mask = binary_dilation(mask, ball(ksize))
-
+    mask = np.concatenate([binary_fill_holes(m)[None,:] for m in mask], axis=0) 
+    
     return mask
     
     
 #==============================================================================
 #   Taken from Holly's 
 #==============================================================================
-def fnc_binary(im, i, ref):
+def fnc_binary(im, ref, thresh_plus):
     ''' This function separates the embryo from the background via Otsu thresholding, setting the background to 0.
         Inputs: 
                 i - is the current slice number (0 to n)
@@ -71,56 +75,97 @@ def fnc_binary(im, i, ref):
                 binary_values - a binary shell image
     '''
     from skimage.filters import threshold_otsu
-    from skimage.restoration import denoise_tv_chambolle
-    import numpy as np 
     
-#    thresh_base = threshold_otsu(255*denoise_tv_chambolle(im[ref]))    # This is just something that works well, and could be played with.
-    thresh_base = threshold_otsu(im[ref])
-#        thresh_base=1
-    thresh_upper= thresh_base+5
-    #print('thresh_base=',thresh_base)
-
-    try:                
-        if np.sum(im[i])>0:                                    # I think there was a proble with Otsu on the remote, hence 'try'.
-            thresh = threshold_otsu(im[i])
-        else:
-            thresh = 0
-        if thresh<thresh_base:                              # This sorts out earlier frames where Otsu doesn't work well
-            thresh=thresh_base                             # Parameter needs to be set by examination of image set
-        elif thresh>thresh_upper:
-            thresh=thresh_upper
-        binary_values = im[i] > (thresh)
-    except TypeError:
-        binary_values = im[i]
-
+    thresh = threshold_otsu(im[ref]) + thresh_plus
+    binary_values = im >= (thresh)
+    
     return binary_values 
     
+
+def fnc_close(binary, pad_size=6, k_size=5):
+    ''' This function creates a smooth binary mask via closing and filling holes in the thresholded image.
+        Inputs: 
+                binary
+        Outputs: 
+                none
+        returns: 
+                binary_close - the updated smoothed mask
+    '''
+    from scipy import ndimage
+    import numpy as np 
+    from skimage.morphology import ball, binary_closing
+    
+    npad = ((pad_size, 0), (0, 0), (0, 0))     # padding required for 3d closing
+    binary = np.pad(binary, pad_width=npad, mode='reflect')
+    binary_close = binary_closing(binary, ball(k_size))            # Close
+    binary_close = np.delete(binary_close, np.s_[:pad_size], axis=0) # deletes the padding. 
+    for i in range(0,len(binary_close)):
+        binary_close[i] = ndimage.binary_fill_holes(binary_close[i]).astype(int)   #> 0     # Fill holes axially in each 2d slice.
+        
+    return binary_close    
+
+
+def fnc_open(embryo_region, pad_size=7, k_size=3):
+    import numpy as np
+    from skimage.morphology import ball, binary_closing, binary_opening, binary_erosion
+
+    npad = ((pad_size, 0), (0, 0), (0, 0))
+    embryo_region = np.pad(embryo_region, pad_width=npad, mode='reflect')
+    binary_open = binary_opening(embryo_region, ball(k_size))            # Close
+
+    binary_open = binary_closing(binary_open, ball(k_size))
+    binary_open = np.delete(binary_open, np.s_[:pad_size], axis=0)
+
+    return binary_open
+
+
+def fnc_remove_small_objects(binary_close, min_percentage_area):
+    ''' This function removes small objects from the binary mask, and multiples by the original data. May want to play with min_area.
+        Inputs: 
+                binary_close
+                self.im_array
+                self.threshold
+        Outputs: 
+                none
+        Returns: 
+                threshold_values, mask_values
+    '''
+    import numpy as np
+    from skimage.measure import label
+    from skimage.morphology import remove_small_objects
+
+    for i in range(0,len(binary_close)):
+        min_area = (np.size(np.nonzero(binary_close[i]))/10)  # Remove objects smaller than roughly 1/10th of the embryo section
+        binary_close[i] = remove_small_objects(binary_close[i], min_size=min_area, connectivity=1, in_place=False)
+    
+    #tifimsave(os.path.join(self.output_path,'test_3binaryrso.tif'), binary_close.astype(np.uint8))              # Saves binary of whole emb into one tif
+
+    binary_rso = label(binary_close,connectivity=1)   #this labels different connected regions with different integer values
+    uniq = np.unique(binary_rso) #find how many unique integers, background is usually first - left to right raster scan of pixels
+    
+#    print('n_unique', len(uniq))
+    #find the area exluding the first unique number
+    area_list = []
+    for i in uniq[1:]:
+        area = np.sum(binary_rso==uniq[i])
+        area_list.append(area)
+    wanted_id = uniq[1:][np.argmax(area_list)]
+    
+    embryo_region = binary_rso == wanted_id
+    
+    return embryo_region
+
     
 def segment_embryo_adaptive(im_array, ref):
     
     import numpy as np 
-    from scipy import ndimage
-    from scipy.ndimage.morphology import binary_closing, binary_opening
-    from skimage.morphology import remove_small_objects
-    from skimage.restoration import denoise_tv_chambolle
     
-    import pylab as plt 
-    mask = []
-    
-    for i in range(len(im_array)):
-        m = fnc_binary(im_array, i, ref)
-        
-        m = binary_closing(m, structure=None, iterations=3, output=None, origin=0)            # Close
-#        m = binary_dilation(m, structure=None, iterations=3, output=None, origin=0)      # Dilation to fill in any further missing holes.      
-        m = ndimage.binary_fill_holes(m>0)                                    # Fill holes
-        m = binary_opening(m, structure=None, iterations=3, output=None, origin=0)      # Dilation to fill in any further missing holes.      
-        m = ndimage.binary_fill_holes(m>0)
-        
-        min_area = (np.size(np.nonzero(m))/100)  # Remove objects smaller than roughly 1/100th of the whole embryo
-        m = remove_small_objects(m, min_size=min_area, connectivity=1, in_place=False)
-        mask.append(m[None,:])
-
-    mask = np.concatenate(mask, axis=0)
+    # these are currently hard coded in specifications? -> need to unwrap these. 
+    m = fnc_binary(im_array, ref, thresh_plus=-10)
+    m = fnc_close(m, pad_size=6, k_size=5)
+    m = fnc_remove_small_objects(m, min_percentage_area = 10)
+    m = fnc_open(m, pad_size=7, k_size=3)
+    mask = np.multiply(im_array, m)
         
     return mask 
     
@@ -168,7 +213,7 @@ def segment_contour_embryo(im_array, I_thresh=10, ksize=3, fast_flag=True, ref=N
     if fast_flag:
         mask_array = segment_embryo(im_array, I_thresh=I_thresh, ksize=ksize)
     else:
-        print 'adaptive'
+        print('adaptive')
         mask_array = segment_embryo_adaptive(im_array, ref=ref) # this is more accurate for capturing the surface. 
     contour_array = contour_seg_embryo(im_array, mask_array)  
     
@@ -266,7 +311,7 @@ def map_centre_line_projection(im_array, center_of_mass, coords, depth=20.0, vox
         mask_distance_less = distance_line<=(depth*voxel)   # Keeps only the values which are less than a given distance
         
         if len(mask_line[mask_distance_less]) > 0: 
-            max_pixel = np.mean(mask_line[mask_distance_less]) # mean projection
+            max_pixel = np.max(mask_line[mask_distance_less]) # mean projection
         else:
             max_pixel = 0
 #        max_pixel = np.max(mask_line[mask_distance_less]) # mean projection
@@ -303,7 +348,7 @@ def map_spherical_intensities(im_array, center_of_mass, coords, depth=20.0, voxe
         mask_distance_less = distance_line<=(depth*voxel)   # Keeps only the values which are less than a given distance
         
         if len(mask_line[mask_distance_less]) > 0: 
-            max_pixel = np.mean(mask_line[mask_distance_less]) # mean projection
+            max_pixel = np.max(mask_line[mask_distance_less]) # mean projection
         else:
             max_pixel = 0
 #        max_pixel = np.max(mask_line[mask_distance_less]) # mean projection
@@ -348,45 +393,6 @@ def map_spherical_intensities(im_array, center_of_mass, coords, depth=20.0, voxe
 #    else:
 #        return (proj_image_interp, proj_image_interp_r)
 #   
-        
-# =============================================================================
-#   the below can be generalised with any 2d map.  
-# =============================================================================
-#def gen_ref_phi_map(ref_coord_set):
-#    """
-#    Builds a unique cylindrical projection reference map based on a reference mapping.  
-#    """
-#    import numpy as np 
-#    uniq_x = np.unique(ref_coord_set[:,0])
-#    ref_ordered = [ref_coord_set[ref_coord_set[:,0]==z] for z in uniq_x ]
-#    
-#    stats = np.array([[len(r), np.min(r[:,3]), np.max(r[:,3])] for r in ref_ordered])
-#    max_radii = int(np.max(stats[:,0]))
-#    
-#    ref_map = np.zeros( ( len(stats), max_radii))
-#    
-#    for i in range(len(stats)):
-#        ref_map[i] = np.linspace(stats[i,1], stats[i,2], max_radii) # evenly place the angles # (assumes 0-2pi)
-#        
-#    return ref_map 
-#    
-#    
-#def gen_ref_polar_map(ref_coord_set):
-#    """
-#    Builds a unique polar projection reference map based on a reference set.  
-#    """
-#    import numpy as np 
-#    uniq_x = np.unique(ref_coord_set[:,0])
-#    uniq_y = np.unique(ref_coord_set[:,1])
-#    
-#    x_space = np.linspace(uniq_x[0], uniq_x[-1], len(uniq_x))
-#    y_space = np.linspace(uniq_y[0], uniq_y[-1], len(uniq_y))
-#    
-#    ref_map_x, ref_map_y = np.meshgrid(x_space, y_space)
-# 
-#    ref_map = np.dstack([ref_map_x, ref_map_y])
-#    
-#    return ref_map
 
 
 def fit_spline(x,y, smoothing=None):
@@ -470,7 +476,12 @@ def compute_orthographic_statistics(contour_mask, coords, pole='neg'):
     coords_ = np.hstack([coords[sign], x_p[:,None], y_p[:,None]])
     
     # we should place the zero point in the center!. 
+    largest_x = np.maximum(np.abs(min_x_p), np.abs(max_x_p))
+    largest_y = np.maximum(np.abs(min_y_p), np.abs(max_y_p))
     
+    min_x_p, max_x_p = -largest_x, largest_x
+    min_y_p, max_y_p = -largest_y, largest_y
+
     unwrap_params = {'pole':pole,
                      'select':sign,
                      'ranges':[min_x_p, min_y_p, max_x_p, max_y_p],
@@ -481,7 +492,7 @@ def compute_orthographic_statistics(contour_mask, coords, pole='neg'):
     return unwrap_params
 
 
-def compute_stereographic_statistics(contour_mask, coords, pole='neg', max_lims=200):
+def compute_stereographic_statistics(contour_mask, coords, pole='neg', max_lims=200, clip=True, clip_lim=0):
     
     import numpy as np 
     import Geometry.geometry as geom
@@ -500,7 +511,6 @@ def compute_stereographic_statistics(contour_mask, coords, pole='neg', max_lims=
     
     
     elevation = np.arcsin(z_/r_) # what is the elevation relative to the central angle (longitude)
-    print np.min(elevation), np.max(elevation)
     
     if pole =='neg':
         # this is south and positive? 
@@ -516,8 +526,14 @@ def compute_stereographic_statistics(contour_mask, coords, pole='neg', max_lims=
     y_p = 2*r_/(r_ + z_) * y_
     
     
-    # how to automatically estimate the bounds? 
-    
+    if clip:
+        select = elevation > clip_lim
+        x_p = x_p[select]; 
+        y_p = y_p[select];
+        r_ = r_[select]
+        coords = coords[select]
+        dist_surface = dist_surface[select]
+
     x_p = np.clip(x_p, -max_lims, max_lims)
     y_p = np.clip(y_p, -max_lims, max_lims)
     
@@ -526,6 +542,51 @@ def compute_stereographic_statistics(contour_mask, coords, pole='neg', max_lims=
     
     # augment the xyz with xyz,phi, r
     coords_ = np.hstack([coords, r_[:,None], dist_surface[:,None], x_p[:,None], y_p[:,None]])
+    
+    # we should place the zero point in the center!. 
+    
+    unwrap_params = {'pole':pole,
+                     'ranges':[min_x_p, min_y_p, max_x_p, max_y_p],
+                     'aspect_ratio':[np.rint(max_x_p-min_x_p+1), np.rint(max_y_p-min_y_p+1)],
+                     'center':center, 
+                     'coords':coords_}
+    
+    return unwrap_params
+
+
+def compute_azimuthal_equidistant_statistics(contour_mask, coords, lat1=0, lon0=0, pole='S', max_lims=200):
+    
+    import numpy as np 
+    import Geometry.geometry as geom
+    import pylab as plt 
+
+    center = coords.mean(axis=0)
+    
+# =============================================================================
+#   To Do: implement a pole orientation correction here. (the mapping is only valid for one hemisphere)
+# =============================================================================
+    # demean. 
+    
+    r,lat, lon = geom.xyz_2_longlat( coords[:,0], coords[:,1], coords[:,2], center=center)
+    x_p, y_p = geom.azimuthal_equidistant([r, lat, lon], lat1=lat1, lon0=lon0, center=center)
+    
+    if pole=='S':
+        select = lat >= 0 
+    else:
+        select = lat <= 0
+
+    """
+    limit mapping to one half of the embryo! as required. 
+    """
+    x_p = x_p[select] # why is select empty? 
+    y_p = y_p[select]
+ 
+
+    min_x_p, max_x_p = np.min(x_p), np.max(x_p)
+    min_y_p, max_y_p = np.min(y_p), np.max(y_p)
+    
+    # augment the xyz with xyz,phi, r
+    coords_ = np.hstack([coords[select], np.abs(r[select])[:,None], x_p[:,None], y_p[:,None]])
     
     # we should place the zero point in the center!. 
     
@@ -569,19 +630,63 @@ def build_mapping_space(ref_coord_set, ranges=None, shape=None):
     return ref_space
 
 
-def shrink_emb_mask(mask, pad=10):
+def shrink_emb_mask_cylindric_morphology(mask, pad=10):
     
-    from skimage.morphology import binary_erosion, square
+    # this uses morphological means to shrink the mask cylindrically. 
+    from skimage.morphology import binary_erosion, square, disk
     import numpy as np 
     
     new_mask = []
     
     for m in mask:
-        new_mask.append(binary_erosion(m, square(pad))[None,:])
+        new_mask.append(binary_erosion(m, disk(pad))[None,:])
     
     new_mask = np.concatenate(new_mask, axis=0)
     
     return new_mask
+
+def shrink_emb_mask_spherical_morphology(mask, pad_size=5, k_size=5):
+    
+    # this uses 3D morphological parameters to erode the surface down!. 
+    from skimage.morphology import binary_erosion, ball
+    
+    npad = ((pad_size,0), (0,0), (0,0))
+    new_mask = np.pad(mask, pad_width=npad, mode='reflect')
+    
+    new_mask = binary_erosion(new_mask, ball(k_size))
+    new_mask = np.delete(new_mask, np.s_[:pad_size], axis=0)
+    new_mask = np.multiply(mask, new_mask)
+    
+    return new_mask
+
+
+def shrink_emb_mask_cylindric(mask, pad=5, center=None):
+    
+    if center is None:
+        # find the centroid of the surface.
+        coords = np.array(np.where(mask > 0)).T
+        center = np.mean(coords,axis=0)
+        
+    points = []
+    
+    for ii, cnt in enumerate(mask):
+        pts = np.array(np.where(cnt>0)).T # this is two digits? 
+        if len(pts)>0: 
+            vec = center[None,1:] - pts # the first axis is the z axis !
+            vec = vec / np.linalg.norm(vec, axis=1)[:,None] # unit displacement vector. 
+            pts = pts + pad*vec # move inwards radially.
+            z_coords = np.hstack(len(pts)*[ii])[:,None]
+            points.append(np.hstack([z_coords,pts]))
+#        else:
+#            points.append([])
+            
+    # points (list) -> points (np.array)
+#    points = np.vstack([c for c in points if len(c)>0])
+    if len(points) == 0:
+        print('check mask, no surface points detected')
+    else:
+        points = np.vstack(points)
+    return points
 
 
 def gen_ref_map(im_array, ref_coord_set, ref_space, interp_method='cubic'):
@@ -645,11 +750,7 @@ def gen_ref_map(im_array, ref_coord_set, ref_space, interp_method='cubic'):
     interp_y = np.clip(interp_y, 0, im_array.shape[1]-1)
     interp_z = np.clip(interp_z, 0, im_array.shape[2]-1)
     
-#    # construct a new mapped_3d_coords that is now 1-1 and dense
-#    mapped_3d_coords_interp = np.hstack([interp_x.ravel()[:,None], 
-#                                         interp_y.ravel()[:,None], 
-#                                         interp_z.ravel()[:,None]])
-    
+    # output as an image which is easier to work with and visualise!
     mapped_3d_coords_interp = np.dstack([interp_x, interp_y, interp_z])
     
     return mapped_3d_coords_interp
@@ -667,31 +768,32 @@ def map_intensities(mapped_coords, query_I, shape, interp=True, distance=None, u
     import numpy as np 
     
     #==============================================================================
-    #   Map the coordinate image and resolve duplicate mappings!     
+    #   Map the coordinate image and resolve duplicate mappings!   
+    #   input mapped_coords should be in (x,y) convention but image is (y,x) convention!. 
     #==============================================================================
     # in image coordinate convention. 
     m_coords = mapped_coords.astype(np.int) # convert to int. 
     
     if uniq_rows is None:
-        uniq_rows = np.unique(m_coords[:,0])
+        uniq_rows = np.unique(m_coords[:,1])
     if uniq_cols is None:
-        uniq_cols = np.unique(m_coords[:,1])
+        uniq_cols = np.unique(m_coords[:,0])
         
     if distance is None:
         mapped_img = np.zeros((len(uniq_rows), len(uniq_cols)))
-        mapped_img[m_coords[:,0], m_coords[:,1]] = query_I
+        mapped_img[m_coords[:,1], m_coords[:,0]] = query_I # we directly map to an image. using the mapped coordinates. 
     else:
         m_set = np.hstack([m_coords, distance[:,None], query_I[:,None]])
         m_group_row = [m_set[m_set[:,0]==r] for r in uniq_rows] #sort into uniq_z
         
         mapped_img = []
         for m in m_group_row:
-            col_sort = [m[m[:,1]==c,-2:] for c in uniq_cols] # get the intensity.
+            col_sort = [m[m[:,0]==c,-2:] for c in uniq_cols] # get the intensity.
             vals = []
             for c in col_sort:
                 if len(c) > 0:
-#                    vals.append(c[np.argmax(c[:,0]), -1]) # take the outermost value. 
-#                    vals.append(np.mean(c[:, -1]))
+#                    vals.append(c[np.argmax(c[:,-2]), -1]) # take the outermost distance! where distance is the 2nd last column!. 
+#                    vals.append(np.mean(c[:, -1])) 
                     vals.append(np.median(c[:,-1])) # take the median value to be more robust. 
                 else:
                     vals.append(0) # no intensity
@@ -716,39 +818,39 @@ def map_intensities(mapped_coords, query_I, shape, interp=True, distance=None, u
     
 
 
-# function used by the map_coords_to_ref_coords_map, can be used directly if one already has the info. 
-def map_coords_to_ref_map_polar(query_coords_order, ref_map, map_index=[-2,-1]):
-    """
-    given a ref_map assigns the query coordinates onto the positions of the map using fast NN trees.
-        note query_coords are ordered.
-    """    
-    from sklearn.neighbors import NearestNeighbors
-    import numpy as np 
-    # define the tree
-    neigh = NearestNeighbors(n_neighbors=1, leaf_size=2, algorithm='kd_tree', n_jobs=4)
-    
-    if len(ref_map.shape) == 3: 
-        ref = ref_map.reshape(-1,ref_map.shape[-1])
-        row, col = np.indices(ref_map.shape[:2])
-    else:
-        ref = ref_map.reshape(-1,1)
-        row, col = np.indices(ref_map.shape)
-    
-    query = query_coords_order[:, map_index]
-    
-    if len(query.shape) < 2:
-        query=query[:,None]
- 
-    # fit the nearest neighbour interpolator
-    neigh.fit(ref)
-    neighbor_index = neigh.kneighbors(query, return_distance=False)
-    
-    mapped_coords_row = row.ravel()[neighbor_index]
-    mapped_coords_col = col.ravel()[neighbor_index]
-
-    mapped_coords = np.hstack([mapped_coords_col, mapped_coords_row])
-    
-    return mapped_coords
+## function used by the map_coords_to_ref_coords_map, can be used directly if one already has the info. 
+#def map_coords_to_ref_map_polar(query_coords_order, ref_map, map_index=[-2,-1]):
+#    """
+#    given a ref_map assigns the query coordinates onto the positions of the map using fast NN trees.
+#        note query_coords are ordered.
+#    """    
+#    from sklearn.neighbors import NearestNeighbors
+#    import numpy as np 
+#    # define the tree
+#    neigh = NearestNeighbors(n_neighbors=1, leaf_size=2, algorithm='kd_tree', n_jobs=4)
+#    
+#    if len(ref_map.shape) == 3: 
+#        ref = ref_map.reshape(-1,ref_map.shape[-1])
+#        row, col = np.indices(ref_map.shape[:2])
+#    else:
+#        ref = ref_map.reshape(-1,1)
+#        row, col = np.indices(ref_map.shape)
+#    
+#    query = query_coords_order[:, map_index]
+#    
+#    if len(query.shape) < 2:
+#        query=query[:,None]
+# 
+#    # fit the nearest neighbour interpolator
+#    neigh.fit(ref)
+#    neighbor_index = neigh.kneighbors(query, return_distance=False)
+#    
+#    mapped_coords_row = row.ravel()[neighbor_index]
+#    mapped_coords_col = col.ravel()[neighbor_index]
+#
+#    mapped_coords = np.hstack([mapped_coords_col, mapped_coords_row])
+#    
+#    return mapped_coords
 
 
 def match_coords_to_ref_space(query_coords, ref_x, ref_y, map_index=[-2,-1]):
@@ -802,163 +904,166 @@ def map_coords_to_ref_map(query_coords_order, ref_map):
     return neighbor_index
 
 
-def map_coords_to_ref_coords_map_cylindrical(query_coords, ref_params):
-    """
-    given a ref_map assigns the query coordinates onto the positions of the map using fast NN trees.
-        note query_coords are ordered.
-    """    
-    import numpy as np 
-
-    COM = ref_params['center']
-    query_coords_derefer = query_coords.copy()
-    query_coords_derefer[:,1] = query_coords[:,1] - COM[1]
-    query_coords_derefer[:,2] = query_coords[:,2] - COM[2] 
-    query_phi = np.arctan2(query_coords_derefer[:,2], query_coords_derefer[:,1])
-    query_coords_ = np.hstack([query_coords, query_phi[:,None]])
-
-    
-    ref_coords = ref_params['map_coords']
-    ref_radii = ref_params['radii']
-    ref_max_radii = ref_params['max_radii']
-    ref_map = gen_ref_phi_map(ref_coords) # this #ref map is purely generated by a linear interpolation between min and max.. ( of the angles )
-   
-
-    uniq_z = np.unique(ref_coords[:,0])    
-    query_coords_rearrange = [query_coords_[query_coords_[:,0]==z] for z in uniq_z ] 
-    
-    # map coordinates. 
-    mapped_coords = map_coords_to_ref_map(query_coords_rearrange, ref_map) 
-    
-    # unflatten the output. 
-    mapped_coords = np.vstack([m for m in mapped_coords if len(m)>0])
-    query_coords_out = np.vstack([q for q in query_coords_rearrange if len(q)>0])
-
-    
-    return np.hstack([query_coords_out, mapped_coords]), ref_map
-    
-    
-def map_coords_to_ref_coords_map_polar(query_coords, ref_params, pole='neg'):
-    """
-    given a ref_map assigns the query coordinates onto the positions of the map using fast NN trees.
-        note query_coords are ordered.
-    """    
-    import numpy as np 
-    import Geometry.geometry as geom
-
-    COM = ref_params['center']
-    query_coords_derefer = query_coords.copy()
-
-    """
-    project into the polar space.
-    """
-    r,lat,lon = geom.xyz_2_longlat(query_coords_derefer[:,0],query_coords_derefer[:,1],query_coords_derefer[:,2], center=COM) # put into geometrical coordinates.
-    x_p, y_p, sign = geom.azimuthal_ortho_proj3D([r.ravel(),lat.ravel(), lon.ravel()], pole=pole)
-    
-    """
-    Generate reference x,y map. 
-    """
-    # use the reference polar points. 
-    ref_coords = ref_params['map_coords']
-    ref_map = gen_ref_polar_map(ref_coords) # this #ref map is purely generated by a linear interpolation between min and max.. ( of the angles )
-
-    query_coords_derefer = np.hstack([query_coords_derefer[sign], x_p[:,None], y_p[:,None]])
-    
-    # map coordinates to the ref map. 
-    mapped_coords = map_coords_to_ref_map_polar(query_coords_derefer, ref_map, map_index=[-2,-1])
-     
-    return np.hstack([query_coords_derefer, mapped_coords]), ref_map
-    
-    
-def map_coords_to_ref_coords_map_stereo(query_coords, ref_params):
-    """
-    given a ref_map assigns the query coordinates onto the positions of the map using fast NN trees.
-        note query_coords are ordered.
-    """    
-    import numpy as np 
-    import Geometry.geometry as geom
-
-    COM = ref_params['center']
-    query_coords_derefer = query_coords.copy()
-    r_ = ref_params['r']
-    """
-    project into the stereo space.
-    """
-    x_ = query_coords[:,0] - COM[0]
-    y_ = query_coords[:,1] - COM[1]
-    z_ = query_coords[:,2] - COM[2]
-
-    # this is the stereo projection for mapping from an origin point that is the center of the 'sphere'    
-    x_p = 2*r_/(2*r_ - z_) * x_
-    y_p = 2*r_/(2*r_ - z_) * y_
-    
-    x_p = x_p * ref_params['factor']
-    y_p = y_p * ref_params['factor']
-    """
-    Generate reference x,y map. 
-    """
-    # use the reference polar points. 
-    ref_coords = ref_params['map_coords']
-    ref_map = gen_ref_polar_map(ref_coords) # this #ref map is purely generated by a linear interpolation between min and max.. ( of the angles )
-
-    query_coords_derefer = np.hstack([query_coords_derefer, x_p[:,None], y_p[:,None]])
-    
-    # map coordinates to the ref map. 
-    mapped_coords = map_coords_to_ref_map_polar(query_coords_derefer, ref_map, map_index=[-2,-1])
-     
-    return np.hstack([query_coords_derefer, mapped_coords]), ref_map
-    
-
-#==============================================================================
-#   To Do: implement conformal mapping!.
-#==============================================================================
-# Gnomonic ['this is highly buggy!' - do not recommend]
-def map_coords_to_ref_coords_map_gnomonic(query_coords, ref_params):
-    """
-    given a ref_map assigns the query coordinates onto the positions of the map using fast NN trees.
-        note query_coords are ordered.
-    """    
-    import numpy as np 
-    import Geometry.geometry as geom
-
-    COM = ref_params['center']
-    query_coords_derefer = query_coords.copy()
-    pole = ref_params['lon0']
-    
-    """
-    project into the gnomonic space.
-    """
-    
-    r, lon, lat = geom.xyz_2_longlat(query_coords[:,0],query_coords[:,1],query_coords[:,2], center=COM)
-    
-    x_ = query_coords[:,0] - COM[0]
-    y_ = query_coords[:,1] - COM[1]
-    z_ = query_coords[:,2] - COM[2]
-#    z_ = np.abs(query_coords[:,2] - ref_params['pole'][2])
-    
-    x_p, y_p = geom.map_gnomonic_xy(x_, y_, z_, r)
-    
-    if np.sign(pole) < 0:
-        select = lon < 0 # to map just the bottom. 
-    else:
-        select = lon > 0 
-        
-    x_p, y_p = x_p[select], y_p[select] # reduce this. 
-    x_p = x_p * ref_params['factor']
-    y_p = y_p * ref_params['factor']
-    query_coords_derefer = query_coords_derefer[select] # reduce this too 
-    
-    """
-    Generate reference x,y map. 
-    """
-    # use the reference polar points. 
-    ref_coords = ref_params['map_coords']
-    ref_map = gen_ref_polar_map(ref_coords) # this #ref map is purely generated by a linear interpolation between min and max.. ( of the angles )
-
-    query_coords_derefer = np.hstack([query_coords_derefer, x_p[:,None], y_p[:,None]])
-    
-    # map coordinates to the ref map. 
-    mapped_coords = map_coords_to_ref_map_polar(query_coords_derefer, ref_map, map_index=[-2,-1])
-     
-    return np.hstack([query_coords_derefer, mapped_coords]), ref_map
+# =============================================================================
+#   see the more general ver. above.... 
+# =============================================================================
+#def map_coords_to_ref_coords_map_cylindrical(query_coords, ref_params):
+#    """
+#    given a ref_map assigns the query coordinates onto the positions of the map using fast NN trees.
+#        note query_coords are ordered.
+#    """    
+#    import numpy as np 
+#
+#    COM = ref_params['center']
+#    query_coords_derefer = query_coords.copy()
+#    query_coords_derefer[:,1] = query_coords[:,1] - COM[1]
+#    query_coords_derefer[:,2] = query_coords[:,2] - COM[2] 
+#    query_phi = np.arctan2(query_coords_derefer[:,2], query_coords_derefer[:,1])
+#    query_coords_ = np.hstack([query_coords, query_phi[:,None]])
+#
+#    
+#    ref_coords = ref_params['map_coords']
+#    ref_radii = ref_params['radii']
+#    ref_max_radii = ref_params['max_radii']
+#    ref_map = gen_ref_phi_map(ref_coords) # this #ref map is purely generated by a linear interpolation between min and max.. ( of the angles )
+#   
+#
+#    uniq_z = np.unique(ref_coords[:,0])    
+#    query_coords_rearrange = [query_coords_[query_coords_[:,0]==z] for z in uniq_z ] 
+#    
+#    # map coordinates. 
+#    mapped_coords = map_coords_to_ref_map(query_coords_rearrange, ref_map) 
+#    
+#    # unflatten the output. 
+#    mapped_coords = np.vstack([m for m in mapped_coords if len(m)>0])
+#    query_coords_out = np.vstack([q for q in query_coords_rearrange if len(q)>0])
+#
+#    
+#    return np.hstack([query_coords_out, mapped_coords]), ref_map
+#    
+#    
+#def map_coords_to_ref_coords_map_polar(query_coords, ref_params, pole='neg'):
+#    """
+#    given a ref_map assigns the query coordinates onto the positions of the map using fast NN trees.
+#        note query_coords are ordered.
+#    """    
+#    import numpy as np 
+#    import Geometry.geometry as geom
+#
+#    COM = ref_params['center']
+#    query_coords_derefer = query_coords.copy()
+#
+#    """
+#    project into the polar space.
+#    """
+#    r,lat,lon = geom.xyz_2_longlat(query_coords_derefer[:,0],query_coords_derefer[:,1],query_coords_derefer[:,2], center=COM) # put into geometrical coordinates.
+#    x_p, y_p, sign = geom.azimuthal_ortho_proj3D([r.ravel(),lat.ravel(), lon.ravel()], pole=pole)
+#    
+#    """
+#    Generate reference x,y map. 
+#    """
+#    # use the reference polar points. 
+#    ref_coords = ref_params['map_coords']
+#    ref_map = gen_ref_polar_map(ref_coords) # this #ref map is purely generated by a linear interpolation between min and max.. ( of the angles )
+#
+#    query_coords_derefer = np.hstack([query_coords_derefer[sign], x_p[:,None], y_p[:,None]])
+#    
+#    # map coordinates to the ref map. 
+#    mapped_coords = map_coords_to_ref_map_polar(query_coords_derefer, ref_map, map_index=[-2,-1])
+#     
+#    return np.hstack([query_coords_derefer, mapped_coords]), ref_map
+#    
+#    
+#def map_coords_to_ref_coords_map_stereo(query_coords, ref_params):
+#    """
+#    given a ref_map assigns the query coordinates onto the positions of the map using fast NN trees.
+#        note query_coords are ordered.
+#    """    
+#    import numpy as np 
+#    import Geometry.geometry as geom
+#
+#    COM = ref_params['center']
+#    query_coords_derefer = query_coords.copy()
+#    r_ = ref_params['r']
+#    """
+#    project into the stereo space.
+#    """
+#    x_ = query_coords[:,0] - COM[0]
+#    y_ = query_coords[:,1] - COM[1]
+#    z_ = query_coords[:,2] - COM[2]
+#
+#    # this is the stereo projection for mapping from an origin point that is the center of the 'sphere'    
+#    x_p = 2*r_/(2*r_ - z_) * x_
+#    y_p = 2*r_/(2*r_ - z_) * y_
+#    
+#    x_p = x_p * ref_params['factor']
+#    y_p = y_p * ref_params['factor']
+#    """
+#    Generate reference x,y map. 
+#    """
+#    # use the reference polar points. 
+#    ref_coords = ref_params['map_coords']
+#    ref_map = gen_ref_polar_map(ref_coords) # this #ref map is purely generated by a linear interpolation between min and max.. ( of the angles )
+#
+#    query_coords_derefer = np.hstack([query_coords_derefer, x_p[:,None], y_p[:,None]])
+#    
+#    # map coordinates to the ref map. 
+#    mapped_coords = map_coords_to_ref_map_polar(query_coords_derefer, ref_map, map_index=[-2,-1])
+#     
+#    return np.hstack([query_coords_derefer, mapped_coords]), ref_map
+#    
+#
+##==============================================================================
+##   To Do: implement conformal mapping!.
+##==============================================================================
+## Gnomonic ['this is highly buggy!' - do not recommend]
+#def map_coords_to_ref_coords_map_gnomonic(query_coords, ref_params):
+#    """
+#    given a ref_map assigns the query coordinates onto the positions of the map using fast NN trees.
+#        note query_coords are ordered.
+#    """    
+#    import numpy as np 
+#    import Geometry.geometry as geom
+#
+#    COM = ref_params['center']
+#    query_coords_derefer = query_coords.copy()
+#    pole = ref_params['lon0']
+#    
+#    """
+#    project into the gnomonic space.
+#    """
+#    
+#    r, lon, lat = geom.xyz_2_longlat(query_coords[:,0],query_coords[:,1],query_coords[:,2], center=COM)
+#    
+#    x_ = query_coords[:,0] - COM[0]
+#    y_ = query_coords[:,1] - COM[1]
+#    z_ = query_coords[:,2] - COM[2]
+##    z_ = np.abs(query_coords[:,2] - ref_params['pole'][2])
+#    
+#    x_p, y_p = geom.map_gnomonic_xy(x_, y_, z_, r)
+#    
+#    if np.sign(pole) < 0:
+#        select = lon < 0 # to map just the bottom. 
+#    else:
+#        select = lon > 0 
+#        
+#    x_p, y_p = x_p[select], y_p[select] # reduce this. 
+#    x_p = x_p * ref_params['factor']
+#    y_p = y_p * ref_params['factor']
+#    query_coords_derefer = query_coords_derefer[select] # reduce this too 
+#    
+#    """
+#    Generate reference x,y map. 
+#    """
+#    # use the reference polar points. 
+#    ref_coords = ref_params['map_coords']
+#    ref_map = gen_ref_polar_map(ref_coords) # this #ref map is purely generated by a linear interpolation between min and max.. ( of the angles )
+#
+#    query_coords_derefer = np.hstack([query_coords_derefer, x_p[:,None], y_p[:,None]])
+#    
+#    # map coordinates to the ref map. 
+#    mapped_coords = map_coords_to_ref_map_polar(query_coords_derefer, ref_map, map_index=[-2,-1])
+#     
+#    return np.hstack([query_coords_derefer, mapped_coords]), ref_map
 
     

@@ -13,8 +13,8 @@ function [transform] = register3D_rigid_faster(im1file,im2file, outsavefile, tra
     img2_ = imresize3d(im2, 1./downsample_factor);
 
     % contrast adjustment for best results.
-    im1_ = reshape(imadjust(im1_(:)), size(im1_)),;
-    im2_ = reshape(imadjust(im2_(:)), size(im2_)); % this does the same job as imadjustn
+    img1_ = reshape(imadjust(img1_(:)), size(img1_));
+    img2_ = reshape(imadjust(img2_(:)), size(img2_)); % this does the same job as imadjustn
     
     [optimizer, metric] = imregconfig(mode);
     optimizer.MaximumIterations = iterations;
