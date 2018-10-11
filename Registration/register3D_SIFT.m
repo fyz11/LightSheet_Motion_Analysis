@@ -14,11 +14,11 @@ function [T, vargout] = register3D_SIFT(im1, im2, downsample, lib_path, return_i
     im1_ = reshape(imadjust(im1_(:)), size(im1_));
     im2_ = reshape(imadjust(im2_(:)), size(im2_)); % this does the same job as imadjustn
     
-    max(im1_(:))
-    max(im2_(:))
+    %max(im1_(:))
+    %max(im2_(:))
     %% registering with 3D sift library.
-    'registering with sift'
-    nnthresh
+    %'registering with sift'
+    %nnthresh
     %[A, matchSrc, matchRef] = registerSift3D(im1_,im2_, 'nnThresh', 0.9); % (src,ref), matches ref->src
     [A, matchSrc, matchRef] = registerSift3D(im1_,im2_, 'nnThresh',nnthresh); % this looser threshold is needed to get matches.
     A(1:3,4) = A(1:3,4) * downsample_factor; % correct the scaling due to downsampling.

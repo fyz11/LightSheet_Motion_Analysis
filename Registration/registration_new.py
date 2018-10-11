@@ -220,7 +220,7 @@ def matlab_register_batch(dataset_files, in_folder, out_folder, reg_config, debu
         im1 = fio.read_multiimg_PIL(fixed_file)
         im2 = fio.read_multiimg_PIL(moving_file)
         
-        im2_ = np.uint8(tf.apply_affine_tform(im2.transpose(2,1,0), np.linalg.inv(transform), np.array(im1.shape)[[2,1,0]]))
+        im2_ = np.uint8(tf.apply_affine_tform(im2.transpose(2,1,0), np.linalg.inv(transform), sampling_grid_shape=np.array(im1.shape)[[2,1,0]]))
         im2_ = im2_.transpose(2,1,0) # flip back
 
         fio.save_multipage_tiff(im2_, save_file)
@@ -238,6 +238,14 @@ def matlab_register_batch(dataset_files, in_folder, out_folder, reg_config, debu
         
         fixed_file = dataset_files[i+1].replace(in_folder, out_folder)
         tforms.append(transform)
+        
+    # save out tforms into a .mat file.
+    tformfile = os.path.join(out_folder, 'tforms-matlab.mat')
+    tforms = np.array(tforms)
+    
+    spio.savemat(tformfile, {'tforms':tforms,
+                             'in_files':dataset_files,
+                             'out_files':np.hstack([f.replace(in_folder, out_folder) for f in dataset_files])})
             
     return tforms
     
@@ -407,7 +415,7 @@ def register3D_SIFT_wrapper(dataset_files, in_folder, out_folder, reg_config, re
                 if reg_config['type'] == 'translation':
                     affine = compose(T, np.eye(3), np.ones(3), np.zeros(3))
 
-                im2_ = np.uint8(tf.apply_affine_tform(im2, np.linalg.inv(affine), np.array(im1.shape)))
+                im2_ = np.uint8(tf.apply_affine_tform(im2, np.linalg.inv(affine), sampling_grid_shape=np.array(im1.shape)))
                 fio.save_multipage_tiff(im2_, datasetsave_files[i])
                 
 #                """
@@ -476,7 +484,7 @@ def register3D_SIFT_wrapper(dataset_files, in_folder, out_folder, reg_config, re
                     affine = compose(T, np.eye(3), np.ones(3), np.zeros(3))
                 
                 tforms.append(affine)
-                im2 = np.uint8(tf.apply_affine_tform(im2, np.linalg.inv(affine), np.array(im1.shape)))
+                im2 = np.uint8(tf.apply_affine_tform(im2, np.linalg.inv(affine), sampling_grid_shape=np.array(im1.shape)))
                 translate_matrixs.append(affine)
 
                 fio.save_multipage_tiff(im2, datasetsave_files[i+1])
