@@ -385,7 +385,7 @@ def register3D_SIFT_wrapper(dataset_files, in_folder, out_folder, reg_config, re
             im2file = dataset_files[2*i+1]
             
             tmatrix = eng.register3D_SIFT_wrapper(str(im1file), str(im2file), str(datasetsave_files[i]), 
-                                              reg_config['downsample'], reg_config['lib_path'], reg_config['return_img'])
+                                              reg_config['downsample'], reg_config['lib_path'], reg_config['return_img'], reg_config['nnthresh'])
             tmatrix = np.asarray(tmatrix)
             tforms.append(tmatrix)
             
