@@ -460,7 +460,7 @@ def register3D_SIFT_wrapper(dataset_files, in_folder, out_folder, reg_config, re
                 
 #                print('registering SIFT')
                 tmatrix = eng.register3D_SIFT_wrapper(str(fixed_file), str(moving_file), str(datasetsave_files[i+1]), 
-                                              reg_config['downsample'], reg_config['lib_path'], reg_config['return_img'])
+                                              reg_config['downsample'], reg_config['lib_path'], reg_config['return_img'], reg_config['nnthresh'])
                 tmatrix = np.asarray(tmatrix)
 
                 """
@@ -504,7 +504,8 @@ def register3D_SIFT_wrapper(dataset_files, in_folder, out_folder, reg_config, re
 
     if reg_config['mode'] == 1:
         spio.savemat(os.path.join(out_folder, 'tforms_view_align.mat'), {'files': dataset_files,
-                                                                        'config': reg_config,                                            'view_tforms': tforms,
+                                                                        'config': reg_config,                                            
+                                                                        'view_tforms': tforms,
                                                                         'translate_tforms':translate_matrixs})
     else:
         spio.savemat(os.path.join(out_folder, 'tforms_time_align.mat'), {'files': dataset_files,
