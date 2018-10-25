@@ -248,6 +248,72 @@ def matlab_register_batch(dataset_files, in_folder, out_folder, reg_config, debu
                              'out_files':np.hstack([f.replace(in_folder, out_folder) for f in dataset_files])})
             
     return tforms
+
+
+def matlab_group_register_batch(dataset_files, ref_file, in_folder, out_folder, reg_config, debug=False):
+    
+    """
+    Registers the affine transformation temporally. ref_file is a 'derived' ref e.g. mean volume img. 
+    """
+    import matlab.engine
+    import scipy.io as spio 
+    import os
+    import shutil
+    import pylab as plt 
+    from tqdm import tqdm
+    
+    eng = matlab.engine.start_matlab() 
+        
+    tforms = []
+    
+    # difference is now fixed_file is always the same one. 
+    fixed_file = ref_file
+    
+    for i in tqdm(range(len(dataset_files))):
+    
+        moving_file = dataset_files[i]
+        save_file = moving_file.replace(in_folder, out_folder)
+        
+        transform = eng.register3D_rigid_faster(str(fixed_file), str(moving_file), str(save_file), 
+                                         'tform.mat', 0, reg_config['downsample'], 
+                                         reg_config['modality'], reg_config['max_iter'], 
+                                         reg_config['type'], 
+                                         reg_config['return_img'], 
+                                         nargout=1)        
+        
+        transform = np.asarray(transform) # (z,y,x) 
+        
+#        if reg_config['return_img'] != 1: # this is too slow and disabled. 
+        im1 = fio.read_multiimg_PIL(fixed_file)
+        im2 = fio.read_multiimg_PIL(moving_file)
+        
+        im2_ = np.uint8(tf.apply_affine_tform(im2.transpose(2,1,0), np.linalg.inv(transform), sampling_grid_shape=np.array(im1.shape)[[2,1,0]]))
+        im2_ = im2_.transpose(2,1,0) # flip back
+
+        fio.save_multipage_tiff(im2_, save_file)
+
+        if debug:
+            fig, ax = plt.subplots(nrows=1, ncols=2)
+            imshowpair(ax[0], im1[im1.shape[0]//2], im2[im2.shape[0]//2]) 
+            imshowpair(ax[1], im1[im1.shape[0]//2], im2_[im2_.shape[0]//2])
+            
+            fig, ax = plt.subplots(nrows=1, ncols=2)
+            imshowpair(ax[0], im1[:,im1.shape[1]//2], im2[:,im2.shape[1]//2])
+            imshowpair(ax[1], im1[:,im1.shape[1]//2], im2_[:,im2_.shape[1]//2])
+
+            plt.show()
+        
+        tforms.append(transform)
+        
+    # save out tforms into a .mat file.
+    tformfile = os.path.join(out_folder, 'tforms-matlab.mat')
+    tforms = np.array(tforms)
+    
+    spio.savemat(tformfile, {'tforms':tforms,
+                             'in_files':dataset_files,
+                             'out_files':np.hstack([f.replace(in_folder, out_folder) for f in dataset_files])})
+            
+    return tforms
     
     
 # for fast coarse translation adjustment using dipy, but appears problematic?
@@ -305,6 +371,53 @@ def simple_join(stack1, stack2, cut_off=None, blend=True, offset=10, weights=[0.
     
     return combined_stack
 
+
+def simple_recolor_join(stack1, stack2, cut_off=None, mode='global'):
+    
+    """
+    if we are recoloring then not much need for blending?
+    stack1 and stack2 are assumed to be the same dimensions. 
+    
+    Two options of global or local recoloring -> local uses each slice separately, global uses the mean average slice image. 
+    
+    How to speed things up? - next step. 
+    """
+    import Image_Functions.recolor as recolor
+    
+    if mode == 'global':
+        mean1 = stack1.mean(axis=0)
+        mean2 = stack2.mean(axis=0)
+    
+        # recolor works with RGB images. 
+        ref_im1 = np.dstack([mean1, mean1, mean1])
+        ref_im2 = np.dstack([mean2, mean2, mean2])
+        
+        # learn the mix_matrix. 
+        _, mix_matrix = recolor.match_color(ref_im1/255., ref_im2/255., mode='chol', eps=1e-8, source_mask=None, target_mask=None, ret_matrix=True)
+    
+    combined_stack = np.zeros_like(stack1)
+    combined_stack[:cut_off] = stack1[:cut_off] 
+    
+    # apply slice by slice -> how to parallelise? 
+    for z in range(cut_off, stack1.shape[0],1):
+        z_im1 = stack1[z]; z_im1 = np.dstack([z_im1, z_im1, z_im1])
+        z_im2 = stack2[z]; z_im2 = np.dstack([z_im2, z_im2, z_im2])
+
+        # should i be masking? -> why is there a discontinuity that  is neither? 
+        if mode == 'local':
+            im2_ = recolor.match_color(z_im1/255., z_im2/255., mode='chol', eps=1e-8, source_mask=None, target_mask=None)[:,:,0]
+        if mode == 'global':
+            im2_ = recolor.recolor_w_matrix(z_im1/255., z_im2/255., mix_matrix, source_mask=None, target_mask=None)[:,:,0]
+        combined_stack[z] = np.uint8(255*im2_)
+    
+    """
+    compute the intensity offset
+    """
+    offset_I = combined_stack[cut_off].mean() - combined_stack[cut_off-1].mean()    
+    combined_stack[cut_off:] = np.uint8(np.clip(combined_stack[cut_off:] + offset_I, 0, 255))
+    
+    return combined_stack
+    
 
 #==============================================================================
 #   Wrapper for 3D sift registration for registering aligning multi-view and sequential datasets. 

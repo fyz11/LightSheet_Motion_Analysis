@@ -16,15 +16,15 @@ def imshowpair(ax,im1,im2):
     shape1 = np.array(im1.shape)
     shape2 = np.array(im2.shape)
     
-    img_shape = np.max(np.array([shape1,shape2]), axis=0)
+    img_shape = np.max(np.vstack([shape1,shape2]), axis=0)
     img = np.zeros((img_shape[0], img_shape[1], 3), dtype=dtype)
     
     offset1x = (img_shape[0] - shape1[0]) // 2; offset1y = (img_shape[1]-shape1[1]) // 2;
-    offset1x = (img_shape[0] - shape2[0]) // 2; offset1y = (img_shape[1]-shape2[1]) // 2;
+    offset2x = (img_shape[0] - shape2[0]) // 2; offset2y = (img_shape[1]-shape2[1]) // 2;
     
     # display centered images. 
-    img[offset1x:offset1x+shape1[0],offset1y:offset1y+shape1[0],0] 
-    img[offset1x:offset1x+shape2[1],offset1y:offset1y+shape2[1],1] 
+    img[offset1x:offset1x+shape1[0],offset1y:offset1y+shape1[1],0] = im1
+    img[offset2x:offset2x+shape2[0],offset2y:offset2y+shape2[1],1] = im2 
     ax.imshow(rescale_intensity(img))
     
     return []

@@ -89,6 +89,45 @@ def read_czifile(czi_file, squeeze=True):
     return image_arrays
 
 
+def tif_img_size(tiffile):
+
+    from PIL import Image
+    
+    im = Image.open(tiffile)
+    
+    return im.size
+
+def tif_vol_size(tiffile):
+
+    from PIL import Image
+
+    img = Image.open(tiffile)
+
+    read = True
+
+    frame = 0
+    im_size = None
+
+    while read:
+        try:
+            img.seek(frame) # select this as the image
+            if frame == 0:
+                im_size = np.array(img.size).ravel()
+                if len(im_size) == 2:
+                    im_size = im_size[::-1]
+                if len(im_size) == 3:
+                    im_size = im_size[[1,0,2]]
+            frame += 1
+        except EOFError:
+            # Not enough frames in img
+            break
+
+    if im_size is not None:
+        return np.hstack([frame, im_size])
+    else:
+        return None
+    
+
 def save_multipage_tiff(np_array, savename):
     
     """
@@ -124,7 +163,7 @@ def load_dataset(infolder, ext='.tif', split_position=0, split_key='_'):
     files = []
     
     for ff in f:
-        if ext in ff:
+        if ext in ff and split_key in ff:
             frame_No = (ff.split(ext)[0]).split(split_key)[split_position]
             frame_No = int(re.findall(r'\d+',frame_No)[0])
             files.append([frame_No, os.path.join(infolder, ff)])
