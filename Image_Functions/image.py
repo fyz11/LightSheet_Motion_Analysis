@@ -37,5 +37,18 @@ def mean_vol_img(vol_img_list, target_shape):
     return np.uint8(255*mean_vol)
 
 
+def max_vol_img(vol_img_list, target_shape):
+
+    # work in float but convert to ubytes for allocation? 
+    mean_vol = np.zeros(target_shape) 
+#    n_imgs = len(vol_img_list)
+
+    for v in vol_img_list:
+        im = fio.read_multiimg_PIL(v)
+        im = pad_vol_2_size(im, target_shape) 
+        mean_vol = np.maximum(mean_vol, im)       
+        
+    return mean_vol
+
         
         

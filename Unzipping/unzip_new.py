@@ -203,7 +203,65 @@ def contour_seg_embryo(im_array, mask_array):
     
     return np.array([contour_seg_mask(im_array[i], mask_array[i]) for i in range(len(im_array))])
 
+
+def fnc_binary_old(im, i, ref):
+    ''' This function separates the embryo from the background via Otsu thresholding, setting the background to 0.
+        Inputs: 
+                i - is the current slice number (0 to n)
+                self.use_base - should be the slice number from e.g. in the middle of the stack, or you find a suitable one by print(thresh).
+                        It is useful to initially print out 'thresh' and plot the binary output to determine a good threshold slice and base.
+                self.im_array: is the array where the images are stored, in order (x,z,y)
+        Returns: 
+                binary_values - a binary shell image
+    '''
+    from skimage.filters import threshold_otsu
+    import numpy as np 
     
+    thresh_base = threshold_otsu(im[ref])    # This is just something that works well, and could be played with.
+#        thresh_base=1
+    thresh_upper= thresh_base+5
+    #print('thresh_base=',thresh_base)
+
+    try:                
+        if np.sum(im[i])>0:                                    # I think there was a proble with Otsu on the remote, hence 'try'.
+            thresh = threshold_otsu(im[i])
+        else:
+            thresh = 0
+        if thresh<thresh_base:                              # This sorts out earlier frames where Otsu doesn't work well
+            thresh=thresh_base                              # Parameter needs to be set by examination of image set
+        elif thresh>thresh_upper:
+            thresh=thresh_upper
+        binary_values = im[i] > (thresh)
+    except TypeError:
+        binary_values = im[i]
+
+    return binary_values 
+    
+def segment_embryo_adaptive_old(im_array, ref):
+    
+    import numpy as np 
+    from scipy import ndimage
+    from scipy.ndimage.morphology import binary_closing, binary_opening
+    from skimage.morphology import remove_small_objects
+    
+    mask = []
+    
+    for i in range(len(im_array)):
+        m = fnc_binary_old(im_array, i, ref)
+        
+        m = binary_closing(m, structure=None, iterations=3, output=None, origin=0)            # Close
+        m = ndimage.binary_fill_holes(m).astype(int)                                    # Fill holes
+        m = binary_opening(m, structure=None, iterations=3, output=None, origin=0)      # Open     
+        
+        min_area = (np.size(np.nonzero(m))/100)  # Remove objects smaller than roughly 1/100th of the whole embryo
+        m = remove_small_objects(m, min_size=min_area, connectivity=1, in_place=False)
+        mask.append(m[None,:])
+
+    mask = np.concatenate(mask, axis=0)
+        
+    return mask 
+
+
 def segment_contour_embryo(im_array, I_thresh=10, ksize=3, fast_flag=True, ref=None):
     
     """
@@ -214,7 +272,8 @@ def segment_contour_embryo(im_array, I_thresh=10, ksize=3, fast_flag=True, ref=N
         mask_array = segment_embryo(im_array, I_thresh=I_thresh, ksize=ksize)
     else:
         print('adaptive')
-        mask_array = segment_embryo_adaptive(im_array, ref=ref) # this is more accurate for capturing the surface. 
+#        mask_array = segment_embryo_adaptive(im_array, ref=ref) # this is more accurate for capturing the surface. 
+        mask_array = segment_embryo_adaptive_old(im_array, ref=ref)
     contour_array = contour_seg_embryo(im_array, mask_array)  
     
     return mask_array, contour_array
@@ -570,6 +629,10 @@ def compute_azimuthal_equidistant_statistics(contour_mask, coords, lat1=0, lon0=
     r,lat, lon = geom.xyz_2_longlat( coords[:,0], coords[:,1], coords[:,2], center=center)
     x_p, y_p = geom.azimuthal_equidistant([r, lat, lon], lat1=lat1, lon0=lon0, center=center)
     
+    
+    """
+    This select needs to account for rotation ...-> relative to lat1 and lon0....
+    """
     if pole=='S':
         select = lat >= 0 
     else:
@@ -779,26 +842,34 @@ def map_intensities(mapped_coords, query_I, shape, interp=True, distance=None, u
     if uniq_cols is None:
         uniq_cols = np.unique(m_coords[:,0])
         
+        
     if distance is None:
         mapped_img = np.zeros((len(uniq_rows), len(uniq_cols)))
         mapped_img[m_coords[:,1], m_coords[:,0]] = query_I # we directly map to an image. using the mapped coordinates. 
     else:
-        m_set = np.hstack([m_coords, distance[:,None], query_I[:,None]])
-        m_group_row = [m_set[m_set[:,0]==r] for r in uniq_rows] #sort into uniq_z
+        m_set = np.hstack([m_coords, distance[:,None], query_I[:,None]]) # this is correct. 
         
+        m_group_row = [m_set[m_set[:,1]==r] for r in uniq_rows] #sort into uniq_z 
         mapped_img = []
         for m in m_group_row:
-            col_sort = [m[m[:,0]==c,-2:] for c in uniq_cols] # get the intensity.
+#            col_sort = [m[m[:,0]==c,-2:] for c in uniq_cols] # get the intensity.
+            col_sort = [m[m[:,0]==c] for c in uniq_cols]
             vals = []
             for c in col_sort:
                 if len(c) > 0:
+#                    vals.append(c[np.argmax(c[:,0]), -1])
 #                    vals.append(c[np.argmax(c[:,-2]), -1]) # take the outermost distance! where distance is the 2nd last column!. 
-#                    vals.append(np.mean(c[:, -1])) 
-                    vals.append(np.median(c[:,-1])) # take the median value to be more robust. 
+                    vals.append(np.mean(c[:, -1])) 
+#                    vals.append(np.median(c[:,-1])) # take the median value to be more robust. 
                 else:
                     vals.append(0) # no intensity
             mapped_img.append(vals)
         mapped_img = np.array(mapped_img)
+        
+        import pylab as plt 
+        plt.figure()
+        plt.imshow(mapped_img)
+        plt.show()
         
     if interp:
         

@@ -7,6 +7,7 @@ Created on Fri Aug 31 09:53:00 2018
 """
 
 import numpy as np 
+import transforms as tf
 
 
 def get_rotation_x(theta):
@@ -42,6 +43,41 @@ def get_rotation_z(theta):
     
     return R_z
 
+
+def rotate_vol(vol, angle, centroid, axis, check_bounds=True):
+    
+    """
+    note to self to add option to prepad before transform. 
+    """
+    rads = angle/180.*np.pi
+    if axis == 'x':
+        rot_matrix = get_rotation_x(rads)
+    if axis == 'y':
+        rot_matrix = get_rotation_y(rads)
+    if axis == 'z':
+        rot_matrix = get_rotation_z(rads)
+    
+    im_center = np.array(vol.shape)//2
+    rot_matrix[:-1,-1] = np.array(centroid)
+    decenter = np.eye(4); decenter[:-1,-1] = -np.array(im_center)
+    
+    T = rot_matrix.dot(decenter)
+    print T
+    if check_bounds:
+        vol_out = tf.apply_affine_tform(vol, T,
+                                        sampling_grid_shape=None,
+                                        check_bounds=True,
+                                        contain_all=True,
+                                        codomain_grid_shape=None,
+                                        domain_grid2world=None,
+                                        codomain_grid2world=None,
+                                        sampling_grid2world=decenter)
+    else:
+        vol_out = tf.apply_affine_tform(vol, T,
+                                        sampling_grid_shape=vol.shape)
+        
+    return vol_out
+    
 
 def xyz_2_spherical(x,y,z, center=None):
     

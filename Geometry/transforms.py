@@ -27,7 +27,7 @@ def apply_affine_tform(volume, matrix, sampling_grid_shape=None, check_bounds=Fa
         else:
             in_out_corners, out_shape = compute_transform_bounds(domain_grid_shape, matrix, contain_all=False)
             tilt_tf_ = None
-    
+        print out_shape
     affine_map = AffineMap(matrix,
                                domain_grid_shape=domain_grid_shape, domain_grid2world=domain_grid2world,
                                codomain_grid_shape=codomain_grid_shape, codomain_grid2world=codomain_grid2world)
@@ -74,7 +74,6 @@ def compute_transform_bounds(im_shape, tf, contain_all=True):
         tf_mod = np.eye(4)
         tf_mod[:-1,-1] = mod_tf # this is the one to change ffs. # reverse this. 
         
-  
         # this adjustment needs to be made in a left handed manner!. 
         # here we probably need to create an offset matrix then multiply this onto the tf_ which is a more complex case.... of transformation? # to avoid sampling issues. 
         return in_out_corners, out_shape, tf_mod
@@ -188,9 +187,9 @@ def correct_axial_tilt(vol, I_thresh=10, ksize=3, mode='pca', pole='S', mask=Non
         rot_mat = correct_tilt_matrix(-angle_x, -angle_y, center)
         
     if out_shape is None:
-        vol_out = apply_affine_tform(vol, rot_mat, imshape)
+        vol_out = apply_affine_tform(vol, rot_mat, sampling_grid_shape=imshape)
     else:
-        vol_out = apply_affine_tform(vol, rot_mat, out_shape)
+        vol_out = apply_affine_tform(vol, rot_mat, sampling_grid_shape=out_shape)
         
     return rot_mat, vol_out
 

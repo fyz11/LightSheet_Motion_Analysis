@@ -414,6 +414,7 @@ def simple_recolor_join(stack1, stack2, cut_off=None, mode='global'):
     compute the intensity offset
     """
     offset_I = combined_stack[cut_off].mean() - combined_stack[cut_off-1].mean()    
+    print(offset_I)
     combined_stack[cut_off:] = np.uint8(np.clip(combined_stack[cut_off:] + offset_I, 0, 255))
     
     return combined_stack
@@ -459,7 +460,7 @@ def register3D_SIFT(infile1, infile2, reg_config, reg_config_rigid=None):
     return affine
 
 
-def register3D_SIFT_wrapper(dataset_files, in_folder, out_folder, reg_config, reg_config_rigid=None):
+def register3D_SIFT_wrapper(dataset_files, in_folder, out_folder, reg_config, reg_config_rigid=None, swap_axes=None):
     
     """
     Registers the similarity transformation exploiting the sift3D library.
@@ -528,11 +529,23 @@ def register3D_SIFT_wrapper(dataset_files, in_folder, out_folder, reg_config, re
                 if reg_config['type'] == 'translation':
                     affine = compose(T, np.eye(3), np.ones(3), np.zeros(3))
 
-                im2_ = np.uint8(tf.apply_affine_tform(im2, np.linalg.inv(affine), sampling_grid_shape=np.array(im1.shape)))
+                if swap_axes is None:
+                    # apply the default. 
+                    im2_ = np.uint8(tf.apply_affine_tform(im2, np.linalg.inv(affine), sampling_grid_shape=np.array(im1.shape)))
+                else:
+                    # transpose the components in the affine matrix 
+                    new_affine = affine[:3].copy()
+                    new_affine = new_affine[swap_axes,:] # flip rows first. (to flip the translation.)
+                    new_affine[:,:3] = new_affine[:,:3][:,swap_axes] #flip columns (ignoring translations)
+                    new_affine = np.vstack([new_affine, [0,0,0,1]]) # make it homogeneous 4x4 transformation. 
+                    
+                    im2_ = np.uint8(tf.apply_affine_tform(im2.transpose(swap_axes), np.linalg.inv(new_affine), sampling_grid_shape=np.array(im1.shape)[[2,1,0]]))
+                    im2_ = im2_.transpose(np.argsort(swap_axes)) # reverse the swap_axes. 
+                    
                 fio.save_multipage_tiff(im2_, datasetsave_files[i])
                 
 #                """
-#                Translation correction.
+#                Translation correction. (no need to apply the axes correction here...)
 #                """                
                 translate_matrix, im2_ = matlab_register(str(im1file), str(datasetsave_files[i]), str(datasetsave_files[i]), reg_config_rigid)
                 translate_matrixs.append(translate_matrix)
