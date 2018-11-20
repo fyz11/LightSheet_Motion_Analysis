@@ -27,7 +27,7 @@ def apply_affine_tform(volume, matrix, sampling_grid_shape=None, check_bounds=Fa
         else:
             in_out_corners, out_shape = compute_transform_bounds(domain_grid_shape, matrix, contain_all=False)
             tilt_tf_ = None
-        print out_shape
+#        print out_shape
     affine_map = AffineMap(matrix,
                                domain_grid_shape=domain_grid_shape, domain_grid2world=domain_grid2world,
                                codomain_grid_shape=codomain_grid_shape, codomain_grid2world=codomain_grid2world)

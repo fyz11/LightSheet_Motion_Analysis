@@ -262,7 +262,7 @@ def segment_embryo_adaptive_old(im_array, ref):
     return mask 
 
 
-def segment_contour_embryo(im_array, I_thresh=10, ksize=3, fast_flag=True, ref=None):
+def segment_contour_embryo(im_array, I_thresh=10, ksize=3, fast_flag=True, ref=None, version='new'):
     
     """
     if fast_flag: then a simple threshold is used to segment which will contain more holes?
@@ -272,8 +272,10 @@ def segment_contour_embryo(im_array, I_thresh=10, ksize=3, fast_flag=True, ref=N
         mask_array = segment_embryo(im_array, I_thresh=I_thresh, ksize=ksize)
     else:
         print('adaptive')
-#        mask_array = segment_embryo_adaptive(im_array, ref=ref) # this is more accurate for capturing the surface. 
-        mask_array = segment_embryo_adaptive_old(im_array, ref=ref)
+        if version == 'new':
+            mask_array = segment_embryo_adaptive(im_array, ref=ref) # this is more accurate for capturing the surface. 
+        if version == 'old':
+            mask_array = segment_embryo_adaptive_old(im_array, ref=ref)
     contour_array = contour_seg_embryo(im_array, mask_array)  
     
     return mask_array, contour_array
