@@ -86,6 +86,203 @@ def pad_z_stack_adj(im, pad_slices=4, min_I=15, min_count=200):
                 
     return np.uint8(np.array(im_new)) # return the new array.
 
+def pad_z_stack_adj_nonint_fast(im, pad_slices=4, min_I=15, min_count=200):
+    
+    """
+    adjustably adds and interpolates across even fractional slices. 
+    """
+    import scipy.ndimage as ndimage
+    from tqdm import tqdm
+    from scipy.interpolate import RegularGridInterpolator as rgi
+    
+    # how much to pad. 
+    n_z, n_y, n_x = im.shape
+    
+    im_new = []
+    X, Y = np.meshgrid(np.arange(n_x), np.arange(n_y)) # set up the interpolation grid. 
+    
+    # linearly interpolate between layers.
+    last_ref = 0
+    ref_seq = []
+    
+    for i in tqdm(range(n_z-1)):
+        cnt = 0
+
+        # rejoin arr1, arr2 into a single array of shape (2, 10, 10)
+        arr = np.r_['0,3', im[i], im[i+1]]
+        
+        if np.sum(arr>min_I) < 2*min_count:
+#            im_new.append(im[i+1]) # add the one. 
+#            print(i)
+            continue
+        else:
+            # do some padding. 
+            # linear interpolation. 
+            
+            # do i have to add the first? 
+            interp_range = np.arange(last_ref, np.rint(last_ref + 1), 1./pad_slices) # how many slices to fit into this range. 
+            
+            if last_ref > 0:
+                interp_range = interp_range[1:]
+            ref_seq.append(interp_range)
+#            print(interp_range)
+            # skip the first entry.
+            for j in interp_range[:]: 
+                frac = j - (np.rint(last_ref + 1) -1)
+#                print(frac)
+                coordinates = np.ones((n_y,n_x)) * frac, Y, X 
+                newarr = ndimage.map_coordinates(arr, coordinates, order=1)
+#                print(j, frac, np.max(newarr))
+                im_new.append(np.uint8(newarr))
+                cnt+=1
+                
+#            print('+++')
+            last_ref = interp_range[-1]
+            
+    print(last_ref)
+    
+
+#    for i in range(n_z-1, n_z):
+#        print (i)
+#        # for the last slice. 
+#        im = im[i]
+#        if np.sum(im>min_I) < min_count:
+##            im_new.append(im)
+#            continue
+#        else:
+#            # double check this ? 
+#            interp_range = np.arange(last_ref, np.rint(last_ref + 1), 1./pad_slices) # how many slices to fit into this range. 
+#
+#            interp_range = interp_range[1:]
+#            print (interp_range)
+##            ref_seq.append(interp_range)
+#            # skip the first entry.
+#            for j in interp_range[:]: 
+##                frac = j - (np.rint(last_ref + 1) -1)
+###                print(frac)
+##                coordinates = np.ones((n_y,n_x)) * frac, Y, X 
+##                newarr = ndimage.map_coordinates(arr, coordinates, order=1)
+##                print(j, frac, np.max(newarr))
+#                im_new.append(np.uint8(im))
+#                
+    return np.uint8(np.array(im_new)) # return the new array.
+
+
+def pad_z_stack_adj_nonint(im, pad_slices=4, min_I=15, min_count=200):
+    
+    """
+    adjustably adds and interpolates across even fractional slices. 
+    """
+    import scipy.ndimage as ndimage
+    from tqdm import tqdm
+    from scipy.interpolate import RegularGridInterpolator as rgi
+    
+    # how much to pad. 
+    n_z, n_y, n_x = im.shape
+    
+#    im_new = np.zeros((n_z*pad_slices, n_y, n_x), dtype=np.uint8)
+#    im_new = []
+    X, Y = np.meshgrid(np.arange(n_x), np.arange(n_y))
+    
+    # run once through to check which slices to interpolate between. 
+    no_signal_slices = [] 
+    begin = 0
+    end = -1 
+    
+    # step 1: 
+    for i in range(n_z):
+        # consider the pairs. 
+        if np.sum(im[i]>min_I) < 2*min_count:
+            if len(no_signal_slices) == 0:
+                begin = i
+            else:
+                if i - begin == 1:
+                    begin = i # update. 
+                else:
+                    if end == -1:
+                        end = i # candidate for s? 
+                    else:
+                        if i-end==1:
+                            end = i
+            no_signal_slices.append(i)
+            
+    # now we can just zoom -> using zoom is majorly inefficient. 
+    if end == -1: 
+        new_stack = ndimage.zoom(im[begin:], zoom=(pad_slices,1,1))
+    else:
+        new_stack = ndimage.zoom(im[begin:end], zoom=(pad_slices,1,1))
+        
+    return new_stack
+#    # search for the start and end indices using a first pass.
+#    begin = 0
+#    end = -1
+#    
+#    print ('determine start/end')
+#    for ii, s in enumerate(no_signal_slices):
+#        
+#        if ii == 0:
+#            print 'hi'
+#            begin = s
+#        else:
+#            if s-begin == 1: 
+#                begin=s # update the begin. 
+#            else:
+#                # check end 
+#                if end == -1:
+#                    end = s # candidate for s? 
+#                else:
+#                    if s-end==1:
+#                        end = s
+#                    
+#    print(begin, end)
+    
+    
+    
+#    for i in tqdm(range(n_z-1)):
+#        # iterate over the different z slices. 
+#        cnt = 0
+#
+#        # rejoin arr1, arr2 into a single array of shape (2, 10, 10)
+#        arr = np.r_['0,3', im[i], im[i+1]]
+#        
+#        if len(no_signal_slices) ==0 or i-no_signal_slices[-1] == 1:
+#            # if continously 
+#            if np.sum(arr>min_I) < 2*min_count:
+##            im_new.append(im[i+1]) # add the one.
+#            no_signal_slices.append(i)
+#            
+#            
+#    print no_signal_slices
+#        else:
+#            # we need to interpolate. 
+#            # step 1: learn the trilinear interpolation formula. 
+#            dy = np.linspace(0, n_y-1, n_y)
+#            dx = np.linspace(0, n_x-1, n_x)
+#            dz = [0,1] # arbitrary. 
+#            
+#            V = np.dstack([im[i], im[i+1]]) # assuming gray (do we extend for colour?)
+#            interpolator = rgi((dy,dx,dz), V)
+#            
+#            for j in np.arange(0,1, 1./pad_slices)
+#            
+#            for j in range(pad_slices*i, pad_slices*(i+1)):
+#                coordinates = np.ones((n_y,n_x)) * 1./pad_slices * cnt, Y, X 
+#                newarr = ndimage.map_coordinates(arr, coordinates, order=1)
+#    
+#                im_new.append(np.uint8(newarr))
+#                cnt+=1
+#            
+#    for i in range(n_z-1, n_z):
+#        # for the last slice. 
+#        im = im[i]
+#        if np.sum(im>min_I) < min_count:
+#            im_new.append(im)
+#        else:
+#            for j in range(pad_slices*i, pad_slices*(i+1)):
+#                im_new.append(im)
+#                
+#    return np.uint8(np.array(im_new)) # return the new array.
+
 
 def downsample_stack(vidstack, scale=1./2):
 
