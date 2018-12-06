@@ -114,6 +114,7 @@ def pad_z_stack_adj_nonint_fast(im, pad_slices=4, min_I=15, min_count=200):
         if np.sum(arr>min_I) < 2*min_count:
 #            im_new.append(im[i+1]) # add the one. 
 #            print(i)
+            last_ref += 1 # try to make it the same as the slices.. 
             continue
         else:
             # do some padding. 
@@ -121,7 +122,7 @@ def pad_z_stack_adj_nonint_fast(im, pad_slices=4, min_I=15, min_count=200):
             
             # do i have to add the first? 
             interp_range = np.arange(last_ref, np.rint(last_ref + 1), 1./pad_slices) # how many slices to fit into this range. 
-            
+
             if last_ref > 0:
                 interp_range = interp_range[1:]
             ref_seq.append(interp_range)
@@ -129,7 +130,7 @@ def pad_z_stack_adj_nonint_fast(im, pad_slices=4, min_I=15, min_count=200):
             # skip the first entry.
             for j in interp_range[:]: 
                 frac = j - (np.rint(last_ref + 1) -1)
-#                print(frac)
+                frac = np.clip(frac,0,1) # required to stop interpolation outside bounds of [0,1]
                 coordinates = np.ones((n_y,n_x)) * frac, Y, X 
                 newarr = ndimage.map_coordinates(arr, coordinates, order=1)
 #                print(j, frac, np.max(newarr))
@@ -139,32 +140,6 @@ def pad_z_stack_adj_nonint_fast(im, pad_slices=4, min_I=15, min_count=200):
 #            print('+++')
             last_ref = interp_range[-1]
             
-    print(last_ref)
-    
-
-#    for i in range(n_z-1, n_z):
-#        print (i)
-#        # for the last slice. 
-#        im = im[i]
-#        if np.sum(im>min_I) < min_count:
-##            im_new.append(im)
-#            continue
-#        else:
-#            # double check this ? 
-#            interp_range = np.arange(last_ref, np.rint(last_ref + 1), 1./pad_slices) # how many slices to fit into this range. 
-#
-#            interp_range = interp_range[1:]
-#            print (interp_range)
-##            ref_seq.append(interp_range)
-#            # skip the first entry.
-#            for j in interp_range[:]: 
-##                frac = j - (np.rint(last_ref + 1) -1)
-###                print(frac)
-##                coordinates = np.ones((n_y,n_x)) * frac, Y, X 
-##                newarr = ndimage.map_coordinates(arr, coordinates, order=1)
-##                print(j, frac, np.max(newarr))
-#                im_new.append(np.uint8(im))
-#                
     return np.uint8(np.array(im_new)) # return the new array.
 
 
