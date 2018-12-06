@@ -140,6 +140,17 @@ def pad_z_stack_adj_nonint_fast(im, pad_slices=4, min_I=15, min_count=200):
 #            print('+++')
             last_ref = interp_range[-1]
             
+    for i in range(n_z-1, n_z):
+        # for the last slice. 
+        im = im[i]
+        
+        interp_range = np.arange(last_ref, np.rint(last_ref + 1), 1./pad_slices) # how many slices to fit into this range. 
+        interp_range = interp_range[1:]        
+        ref_seq.append(interp_range)
+        
+        for j in interp_range[:]: 
+            im_new.append(im)
+            
     return np.uint8(np.array(im_new)) # return the new array.
 
 
