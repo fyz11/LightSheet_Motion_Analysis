@@ -421,8 +421,29 @@ def simple_recolor_join(stack1, stack2, cut_off=None, mode='global'):
     
 
 #==============================================================================
-#   Wrapper for 3D sift registration for registering aligning multi-view and sequential datasets. 
+#   Wrapper for using MIND () in 3D to yield biologically plausible registrations of the surface, generically for any other non-rigid is also possible.
 #==============================================================================
+def nonregister_3D(infile1, infile2, savefile, savetransformfile, reg_config):
+        
+    """
+    this registers once with SIFT and returns transformations. 
+    """
+    import matlab.engine
+    eng = matlab.engine.start_matlab()
+    
+    print(reg_config['alpha'], reg_config['levels'], reg_config['warps'])
+    
+#    alpha = matlab.single(reg_config['alpha'])
+    levels = matlab.double(reg_config['levels'])
+    warps = matlab.double(reg_config['warps'])
+    
+    # add in additional options for modifying. 
+    return_val = eng.nonrigid_register3D_MIND(str(infile1), str(infile2), str(savefile), str(savetransformfile),
+                                      reg_config['alpha'], levels, warps)
+        
+    return return_val    
+
+
 #==============================================================================
 #   Wrapper for 3D sift registration for registering aligning multi-view and sequential datasets. 
 #==============================================================================
