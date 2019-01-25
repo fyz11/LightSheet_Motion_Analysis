@@ -132,9 +132,9 @@ def pad_z_stack_adj_nonint_fast(im, pad_slices=4, min_I=15, min_count=200):
                 frac = j - (np.rint(last_ref + 1) -1)
                 frac = np.clip(frac,0,1) # required to stop interpolation outside bounds of [0,1]
                 coordinates = np.ones((n_y,n_x)) * frac, Y, X 
-                newarr = ndimage.map_coordinates(arr, coordinates, order=1)
+                newarr = ndimage.map_coordinates(arr, coordinates, order=3, mode='reflect')
 #                print(j, frac, np.max(newarr))
-                im_new.append(np.uint8(newarr))
+                im_new.append(np.uint8(np.clip(newarr, 0, 255.)))
                 cnt+=1
                 
 #            print('+++')
@@ -151,7 +151,7 @@ def pad_z_stack_adj_nonint_fast(im, pad_slices=4, min_I=15, min_count=200):
         for j in interp_range[:]: 
             im_new.append(im)
             
-    return np.uint8(np.array(im_new)) # return the new array.
+    return np.uint8(np.clip(np.array(im_new), 0, 255)) # return the new array.
 
 
 def pad_z_stack_adj_nonint(im, pad_slices=4, min_I=15, min_count=200):

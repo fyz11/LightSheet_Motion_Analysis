@@ -19,6 +19,7 @@ from dipy.align.transforms import TranslationTransform3D
 import Utility_Functions.file_io as fio
 from Visualisation.imshowpair import imshowpair
 from Geometry import transforms as tf
+from Geometry import geometry as geom
 from transforms3d.affines import decompose44, compose
 import numpy as np 
 
@@ -150,10 +151,25 @@ def matlab_register(fixed_file, moving_file, save_file, reg_config):
     eng = matlab.engine.start_matlab() 
     
     if reg_config['view'] is not None:
-        print('using initialisation')
+
         # use initialisation. 
         initial_tf = reg_config['initial_tf']
-        spio.savemat('tform.mat', {'tform':initial_tf.T}) # transpose for matlab 
+
+        # decompose the initialisation to comply with Matlab checks. # might be better ways to do this?
+        T,R,Z,S = decompose44(initial_tf) # S is shear!
+        
+        if reg_config['type'] == 'similarity':
+            # initialise with just rigid instead -> checks on this normally are too stringent.
+            affine = compose(T, R, np.ones(3), np.zeros(3)) # the similarity criteria too difficult for matlab 
+        if reg_config['type'] == 'rigid':
+            affine = compose(T, R, np.ones(3), np.zeros(3))
+        if reg_config['type'] == 'translation':
+            affine = compose(T, np.eye(3), np.ones(3), np.zeros(3))
+        if reg_config['type'] == 'affine':
+            affine = initial_tf.copy()
+        
+        # save the tform as temporary for matlab to read. 
+        spio.savemat('tform.mat', {'tform':affine}) # transpose for matlab 
         
         transform = eng.register3D_rigid_faster(fixed_file, moving_file, save_file, 
                                                  'tform.mat', 1, reg_config['downsample'], 
@@ -176,7 +192,7 @@ def matlab_register(fixed_file, moving_file, save_file, reg_config):
         im2_ = np.uint8(tf.apply_affine_tform(im2.transpose(2,1,0), np.linalg.inv(transform), np.array(im1.shape)[[2,1,0]]))
         im2_ = im2_.transpose(2,1,0) # flip back
     
-        return transform, im2_
+        return transform, im2_, im1
     else:
         return transform 
         
@@ -194,7 +210,8 @@ def matlab_register_batch(dataset_files, in_folder, out_folder, reg_config, debu
     from tqdm import tqdm
     
     eng = matlab.engine.start_matlab() 
-        
+    fio.mkdir(out_folder)
+
     tforms = []
     fixed_file = dataset_files[0]
     
@@ -250,10 +267,14 @@ def matlab_register_batch(dataset_files, in_folder, out_folder, reg_config, debu
     return tforms
 
 
-def matlab_group_register_batch(dataset_files, ref_file, in_folder, out_folder, reg_config, debug=False):
+def matlab_group_register_batch(dataset_files, ref_file, in_folder, out_folder, reg_config, reset_ref_steps=0, debug=False):
     
     """
     Registers the affine transformation temporally. ref_file is a 'derived' ref e.g. mean volume img. 
+
+    Params:
+    -------
+        reset_ref_steps (int): if > 0, uses every nth registered file as the reference. default of 0 = fixed reference, for 1 = sequential    
     """
     import matlab.engine
     import scipy.io as spio 
@@ -262,17 +283,21 @@ def matlab_group_register_batch(dataset_files, ref_file, in_folder, out_folder, 
     import pylab as plt 
     from tqdm import tqdm
     
+    # start matlab engine. 
     eng = matlab.engine.start_matlab() 
-        
+    fio.mkdir(out_folder) # check output folder exists. 
+    
     tforms = []
+    ref_files = []
     
     # difference is now fixed_file is always the same one. 
     fixed_file = ref_file
+    all_save_files = np.hstack([f.replace(in_folder, out_folder) for f in dataset_files])
     
     for i in tqdm(range(len(dataset_files))):
     
         moving_file = dataset_files[i]
-        save_file = moving_file.replace(in_folder, out_folder)
+        save_file = all_save_files[i]
         
         transform = eng.register3D_rigid_faster(str(fixed_file), str(moving_file), str(save_file), 
                                          'tform.mat', 0, reg_config['downsample'], 
@@ -282,7 +307,14 @@ def matlab_group_register_batch(dataset_files, ref_file, in_folder, out_folder, 
                                          nargout=1)        
         
         transform = np.asarray(transform) # (z,y,x) 
-        
+        tforms.append(transform)
+        ref_files.append(fixed_file) # which is the reference used. 
+
+        if reset_ref_steps > 0:
+            # change the ref file.
+            if np.mod(i+1, reset_ref_steps) == 0: 
+                fixed_file = save_file # change to the file you just saved. 
+
 #        if reg_config['return_img'] != 1: # this is too slow and disabled. 
         im1 = fio.read_multiimg_PIL(fixed_file)
         im2 = fio.read_multiimg_PIL(moving_file)
@@ -293,6 +325,8 @@ def matlab_group_register_batch(dataset_files, ref_file, in_folder, out_folder, 
         fio.save_multipage_tiff(im2_, save_file)
 
         if debug:
+
+            # visualize all three possible cross sections for reference and checking.
             fig, ax = plt.subplots(nrows=1, ncols=2)
             imshowpair(ax[0], im1[im1.shape[0]//2], im2[im2.shape[0]//2]) 
             imshowpair(ax[1], im1[im1.shape[0]//2], im2_[im2_.shape[0]//2])
@@ -301,17 +335,22 @@ def matlab_group_register_batch(dataset_files, ref_file, in_folder, out_folder, 
             imshowpair(ax[0], im1[:,im1.shape[1]//2], im2[:,im2.shape[1]//2])
             imshowpair(ax[1], im1[:,im1.shape[1]//2], im2_[:,im2_.shape[1]//2])
 
+            fig, ax = plt.subplots(nrows=1, ncols=2)
+            imshowpair(ax[0], im1[:,:,im1.shape[2]//2], im2[:,:,im2.shape[2]//2])
+            imshowpair(ax[1], im1[:,:,im1.shape[2]//2], im2_[:,:,im2_.shape[2]//2])
+
             plt.show()
-        
-        tforms.append(transform)
         
     # save out tforms into a .mat file.
     tformfile = os.path.join(out_folder, 'tforms-matlab.mat')
     tforms = np.array(tforms)
+    ref_files = np.hstack(ref_files)
     
     spio.savemat(tformfile, {'tforms':tforms,
+                             'ref_files':ref_files,
                              'in_files':dataset_files,
-                             'out_files':np.hstack([f.replace(in_folder, out_folder) for f in dataset_files])})
+                             'out_files':all_save_files,
+                             'reg_config':reg_config})
             
     return tforms
     
@@ -447,7 +486,7 @@ def nonregister_3D(infile1, infile2, savefile, savetransformfile, reg_config):
 #==============================================================================
 #   Wrapper for 3D sift registration for registering aligning multi-view and sequential datasets. 
 #==============================================================================
-def register3D_SIFT(infile1, infile2, reg_config, reg_config_rigid=None):
+def register3D_SIFT(infile1, infile2, reg_config):
         
     """
     this registers once with SIFT and returns transformations. 
@@ -481,7 +520,7 @@ def register3D_SIFT(infile1, infile2, reg_config, reg_config_rigid=None):
     return affine
 
 
-def register3D_SIFT_wrapper(dataset_files, in_folder, out_folder, reg_config, reg_config_rigid=None, swap_axes=None):
+def register3D_SIFT_wrapper(dataset_files, in_folder, out_folder, reg_config, reg_config_rigid=None, swap_axes=None, debug=False):
     
     """
     Registers the similarity transformation exploiting the sift3D library.
@@ -501,17 +540,28 @@ def register3D_SIFT_wrapper(dataset_files, in_folder, out_folder, reg_config, re
     from skimage.exposure import rescale_intensity
     import sys
     
-#     start the python matlab engine.
+    # start the python matlab engine.
     eng = matlab.engine.start_matlab() 
     fio.mkdir(out_folder) # check that the output folder exists, create if does not exist.  
     
+    # check the reg_config? 
+    if 'nnthresh' not in reg_config.keys():
+        reg_config['nnthresh'] = 0.95
+    if 'sigmaN' not in reg_config.keys():
+        reg_config['sigmaN'] = 1.1 # good for high quality registration but may wish to increase to speed up 
+    if 'numKpLevels' not in reg_config.keys():
+        reg_config['numKpLevels'] = 3 # standard number of octaves for sift registration 
+    if 'return_img' not in reg_config.keys():
+        reg_config['return_img'] = 0 # don't return in matlab, let python handle all the grunt work.
+
     if reg_config['mode'] == 1:
         
-        print ('running sequential registration')
-        
+        print ('running view alignment')
+
         tforms = []
         translate_matrixs = []
         
+        # compile the elongated file lengths. 
         datasetsave_files = np.hstack([dataset_files[2*i+1].replace(in_folder, out_folder) for i in range(len(dataset_files)//2)])
         
         for i in tqdm(range(len(dataset_files)//2)):
@@ -520,19 +570,14 @@ def register3D_SIFT_wrapper(dataset_files, in_folder, out_folder, reg_config, re
             im2file = dataset_files[2*i+1]
             
             tmatrix = eng.register3D_SIFT_wrapper(str(im1file), str(im2file), str(datasetsave_files[i]), 
-                                              reg_config['downsample'], reg_config['lib_path'], reg_config['return_img'], reg_config['nnthresh'])
+                                              reg_config['downsample'], reg_config['lib_path'], reg_config['return_img'], reg_config['nnthresh'], reg_config['sigmaN'], reg_config['numKpLevels'])
             tmatrix = np.asarray(tmatrix)
-            tforms.append(tmatrix)
             
             """
             if matlab doesn't save matrix then we use python to do so.
             """
             if reg_config['return_img']!=1:
-                
-                im1 = fio.read_multiimg_PIL(im1file)
-                im2 = fio.read_multiimg_PIL(im2file)
-                                
-                
+
                 affine = np.zeros((4,4))
                 affine[:-1,:] = tmatrix.copy()
                 affine[-1] = np.array([0,0,0,1])
@@ -549,35 +594,56 @@ def register3D_SIFT_wrapper(dataset_files, in_folder, out_folder, reg_config, re
                     affine = compose(T, R, np.ones(3), np.zeros(3))
                 if reg_config['type'] == 'translation':
                     affine = compose(T, np.eye(3), np.ones(3), np.zeros(3))
+                if reg_config['type'] == 'affine':
+                    pass
 
-                if swap_axes is None:
-                    # apply the default. 
-                    im2_ = np.uint8(tf.apply_affine_tform(im2, np.linalg.inv(affine), sampling_grid_shape=np.array(im1.shape)))
+                tforms.append(affine) # use this matrix to save. 
+                
+                if reg_config_rigid is None:
+                    # no downstream refinement. 
+                    im1 = fio.read_multiimg_PIL(im1file)
+                    im2 = fio.read_multiimg_PIL(im2file)
+                                
+                    if swap_axes is None:
+                        im2_ = np.uint8(tf.apply_affine_tform(im2, np.linalg.inv(affine), sampling_grid_shape=np.array(im1.shape)))
+                    else:
+                        # transpose the components in the affine matrix 
+                        new_affine = affine[:3].copy()
+                        new_affine = new_affine[swap_axes,:] # flip rows first. (to flip the translation.)
+                        new_affine[:,:3] = new_affine[:,:3][:,swap_axes] #flip columns (ignoring translations)
+                        new_affine = np.vstack([new_affine, [0,0,0,1]]) # make it homogeneous 4x4 transformation. 
+                        
+                        im2_ = np.uint8(tf.apply_affine_tform(im2.transpose(swap_axes), np.linalg.inv(new_affine), sampling_grid_shape=np.array(im1.shape)[[2,1,0]]))
+                        im2_ = im2_.transpose(np.argsort(swap_axes)) # reverse the swap_axes. 
+                    
+                    print('saving')
+                    print(datasetsave_files[i])
+                    fio.save_multipage_tiff(im2_, datasetsave_files[i])
                 else:
-                    # transpose the components in the affine matrix 
-                    new_affine = affine[:3].copy()
-                    new_affine = new_affine[swap_axes,:] # flip rows first. (to flip the translation.)
-                    new_affine[:,:3] = new_affine[:,:3][:,swap_axes] #flip columns (ignoring translations)
-                    new_affine = np.vstack([new_affine, [0,0,0,1]]) # make it homogeneous 4x4 transformation. 
+                    """
+                    Downstream correction is used therefore just pass the transform along. 
+                    """                
+                    affine_matlab = geom.shuffle_Tmatrix_axis_3D(affine, [2,1,0]) # don't need to shuffle at all ? 
+
+                    # add these two options to the dict or modify to make sure this works. 
+                    reg_config_rigid['view'] = 1
+                    reg_config_rigid['initial_tf'] = affine_matlab 
                     
-                    im2_ = np.uint8(tf.apply_affine_tform(im2.transpose(swap_axes), np.linalg.inv(new_affine), sampling_grid_shape=np.array(im1.shape)[[2,1,0]]))
-                    im2_ = im2_.transpose(np.argsort(swap_axes)) # reverse the swap_axes. 
+                    # this allows reuse -> just pass the transform without having to interpolate first. 
+                    translate_matrix, im2_, im1 = matlab_register(str(im1file), str(im2file), str(datasetsave_files[i]), reg_config_rigid)
+                    translate_matrixs.append(translate_matrix)
                     
+                # save the final registered ver. of image 2. 
                 fio.save_multipage_tiff(im2_, datasetsave_files[i])
                 
-#                """
-#                Translation correction. (no need to apply the axes correction here...)
-#                """                
-                translate_matrix, im2_ = matlab_register(str(im1file), str(datasetsave_files[i]), str(datasetsave_files[i]), reg_config_rigid)
-                translate_matrixs.append(translate_matrix)
-                
-                fio.save_multipage_tiff(im2_, datasetsave_files[i])
-                
-                fig, ax = plt.subplots()
-                imshowpair.imshowpair(ax, im1[im1.shape[0]//2], im2_[im2_.shape[0]//2])                
-                fig, ax = plt.subplots()
-                imshowpair.imshowpair(ax, im1[:,im1.shape[1]//2], im2_[:,im2_.shape[1]//2])
-                plt.show()
+                if debug == True:
+                    fig, ax = plt.subplots()
+                    imshowpair.imshowpair(ax, im1[im1.shape[0]//2], im2_[im2_.shape[0]//2])                
+                    fig, ax = plt.subplots()
+                    imshowpair.imshowpair(ax, im1[:,im1.shape[1]//2], im2_[:,im2_.shape[1]//2])
+                    fig, ax = plt.subplots()
+                    imshowpair.imshowpair(ax, im1[:,:,im1.shape[2]//2], im2_[:,:,im2_.shape[2]//2])
+                    plt.show()
 
             
     if reg_config['mode'] == 2:
@@ -650,11 +716,18 @@ def register3D_SIFT_wrapper(dataset_files, in_folder, out_folder, reg_config, re
     translate_matrixs = np.array(translate_matrixs)
 
     if reg_config['mode'] == 1:
+
+        if reg_config_rigid is None:
+            translate_matrixs = 0
+
         spio.savemat(os.path.join(out_folder, 'tforms_view_align.mat'), {'files': dataset_files,
                                                                         'config': reg_config,                                            
                                                                         'view_tforms': tforms,
                                                                         'translate_tforms':translate_matrixs})
     else:
+
+        if reg_config_rigid is None:
+            translate_matrixs = 0
         spio.savemat(os.path.join(out_folder, 'tforms_time_align.mat'), {'files': dataset_files,
                                                                         'config': reg_config,  
                                                                         'view_tforms': tforms,

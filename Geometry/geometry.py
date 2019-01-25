@@ -44,6 +44,19 @@ def get_rotation_z(theta):
     return R_z
 
 
+def shuffle_Tmatrix_axis_3D(Tmatrix, new_axis):
+    
+    """
+    used to shuffle the Tmatrix axis to allow different image conventions. (useful e.g. if moving between Python and Matlab)
+    """
+    Tmatrix_new = Tmatrix[:3].copy()
+    Tmatrix_new = Tmatrix_new[new_axis,:] # flip rows first. (to flip the translation.)
+    Tmatrix_new[:,:3] = Tmatrix_new[:,:3][:,new_axis] #flip columns (ignoring translations)
+    Tmatrix_new = np.vstack([Tmatrix_new, [0,0,0,1]]) # make it homogeneous 4x4 transformation. 
+    
+    return Tmatrix_new
+
+
 def rotate_vol(vol, angle, centroid, axis, check_bounds=True):
     
     """

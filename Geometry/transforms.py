@@ -5,7 +5,7 @@ Created on Sat Aug 11 22:35:20 2018
 
 @author: felix
 """
-import Geometry.geometry as geom
+import geometry as geom
 
 def apply_affine_tform(volume, matrix, sampling_grid_shape=None, check_bounds=False, contain_all=False, domain_grid_shape=None, codomain_grid_shape=None, domain_grid2world=None, codomain_grid2world=None, sampling_grid2world=None):
     
