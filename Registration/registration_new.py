@@ -18,8 +18,10 @@ from dipy.align.transforms import TranslationTransform3D
 # higher level import.
 import Utility_Functions.file_io as fio
 from Visualisation.imshowpair import imshowpair
-from Geometry import transforms as tf
-from Geometry import geometry as geom
+#from Geometry import transforms as tf
+#from Geometry import geometry as geom
+import Geometry.transforms as tf
+import Geometry.geometry as geom
 from transforms3d.affines import decompose44, compose
 import numpy as np 
 
