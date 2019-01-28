@@ -1,4 +1,4 @@
-function [T] = register3D_SIFT_wrapper(imgfile1, imgfile2, outsavefile, downsample, lib_path, return_img, nnthresh)
+function [T] = register3D_SIFT_wrapper(imgfile1, imgfile2, outsavefile, downsample, lib_path, return_img, nnthresh, sigmaN, numKpLevels)
 
     %%%%%%%%%%%%%%%%%%%
     %   imgfile1 -
@@ -18,13 +18,13 @@ function [T] = register3D_SIFT_wrapper(imgfile1, imgfile2, outsavefile, downsamp
     
     if return_img == 1
         'matlab saving image'
-        [T, registered] = register3D_SIFT(im1, im2, downsample, lib_path, return_img, nnthresh);
+        [T, registered] = register3D_SIFT(im1, im2, downsample, lib_path, return_img, nnthresh, sigmaN, numKpLevels);
         
         % save out registered. 
         saveastiff(registered, outsavefile);
     else
         'returning transform'
-        T = register3D_SIFT(im1, im2, downsample, lib_path, return_img, nnthresh);
+        T = register3D_SIFT(im1, im2, downsample, lib_path, return_img, nnthresh, sigmaN, numKpLevels);
     end
     
 end
