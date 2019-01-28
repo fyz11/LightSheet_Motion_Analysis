@@ -312,10 +312,6 @@ def matlab_group_register_batch(dataset_files, ref_file, in_folder, out_folder, 
         tforms.append(transform)
         ref_files.append(fixed_file) # which is the reference used. 
 
-        if reset_ref_steps > 0:
-            # change the ref file.
-            if np.mod(i+1, reset_ref_steps) == 0: 
-                fixed_file = save_file # change to the file you just saved. 
 
 #        if reg_config['return_img'] != 1: # this is too slow and disabled. 
         im1 = fio.read_multiimg_PIL(fixed_file)
@@ -342,6 +338,11 @@ def matlab_group_register_batch(dataset_files, ref_file, in_folder, out_folder, 
             imshowpair(ax[1], im1[:,:,im1.shape[2]//2], im2_[:,:,im2_.shape[2]//2])
 
             plt.show()
+        
+        if reset_ref_steps > 0:
+            # change the ref file.
+            if np.mod(i+1, reset_ref_steps) == 0: 
+                fixed_file = save_file # change to the file you just saved. 
         
     # save out tforms into a .mat file.
     tformfile = os.path.join(out_folder, 'tforms-matlab.mat')
