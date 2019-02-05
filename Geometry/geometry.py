@@ -75,6 +75,7 @@ def rotate_vol(vol, angle, centroid, axis, check_bounds=True):
     decenter = np.eye(4); decenter[:-1,-1] = -np.array(im_center)
     
     T = rot_matrix.dot(decenter)
+    print(T)
 
     if check_bounds:
         vol_out = tf.apply_affine_tform(vol, T,
