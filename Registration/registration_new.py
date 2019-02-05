@@ -146,7 +146,7 @@ def dipy_register_translation_batch(dataset_files, in_folder, out_folder, reg_co
 #   Matlab scripts for similarity transform (what of the dipy version? )
 #==============================================================================
 
-def matlab_register(fixed_file, moving_file, save_file, reg_config):
+def matlab_register(fixed_file, moving_file, save_file, reg_config, multiscale=False):
     
     import matlab.engine
     import scipy.io as spio 
@@ -173,19 +173,39 @@ def matlab_register(fixed_file, moving_file, save_file, reg_config):
         # save the tform as temporary for matlab to read. 
         spio.savemat('tform.mat', {'tform':affine}) # transpose for matlab 
         
-        transform = eng.register3D_rigid_faster(fixed_file, moving_file, save_file, 
-                                                 'tform.mat', 1, reg_config['downsample'], 
-                                                 reg_config['modality'], reg_config['max_iter'], 
-                                                 reg_config['type'], 
-                                                 reg_config['return_img'], 
-                                                 nargout=1) 
+        if multiscale == False:
+            transform = eng.register3D_rigid_faster(fixed_file, moving_file, save_file, 
+                                                    'tform.mat', 1, reg_config['downsample'], 
+                                                    reg_config['modality'], reg_config['max_iter'], 
+                                                    reg_config['type'], 
+                                                    reg_config['return_img'], 
+                                                    nargout=1) 
+        else:
+            transform = eng.register3D_intensity_multiscale(fixed_file, moving_file, save_file, 
+                                                    'tform.mat', 1, reg_config['downsample'], 
+                                                    reg_config['modality'], reg_config['max_iter'], 
+                                                    reg_config['type'], 
+                                                    reg_config['return_img'], 
+                                                    nargout=1)
     else:
-        transform = eng.register3D_rigid_faster(fixed_file, moving_file, save_file, 
-                                                 'tform.mat', 0, reg_config['downsample'], 
-                                                 reg_config['modality'], reg_config['max_iter'], 
-                                                 reg_config['type'], 
-                                                 reg_config['return_img'], 
-                                                 nargout=1)     
+        if multiscale == False:
+            transform = eng.register3D_rigid_faster(fixed_file, moving_file, save_file, 
+                                                    'tform.mat', 0, reg_config['downsample'], 
+                                                    reg_config['modality'], reg_config['max_iter'], 
+                                                    reg_config['type'], 
+                                                    reg_config['return_img'], 
+                                                    nargout=1)    
+        else:
+            print('multiscale')
+            # convert to matlab arrays. 
+            levels = matlab.double(reg_config['downsample'])
+            warps = matlab.double(reg_config['max_iter'])
+            transform = eng.register3D_intensity_multiscale(fixed_file, moving_file, save_file, 
+                                                    'tform.mat', 0, levels, 
+                                                    reg_config['modality'], warps, 
+                                                    reg_config['type'], 
+                                                    reg_config['return_img'], 
+                                                    nargout=1)
     transform = np.asarray(transform)
     
     if reg_config['return_img']!= 1:
@@ -198,7 +218,7 @@ def matlab_register(fixed_file, moving_file, save_file, reg_config):
     else:
         return transform 
         
-
+# somewhat redundant. 
 def matlab_register_batch(dataset_files, in_folder, out_folder, reg_config, debug=False):
     
     """
@@ -268,8 +288,8 @@ def matlab_register_batch(dataset_files, in_folder, out_folder, reg_config, debu
             
     return tforms
 
-
-def matlab_group_register_batch(dataset_files, ref_file, in_folder, out_folder, reg_config, reset_ref_steps=0, debug=False):
+# add multiscale capability 
+def matlab_group_register_batch(dataset_files, ref_file, in_folder, out_folder, reg_config, reset_ref_steps=0, multiscale=True, debug=False):
     
     """
     Registers the affine transformation temporally. ref_file is a 'derived' ref e.g. mean volume img. 
@@ -301,17 +321,27 @@ def matlab_group_register_batch(dataset_files, ref_file, in_folder, out_folder, 
         moving_file = dataset_files[i]
         save_file = all_save_files[i]
         
-        transform = eng.register3D_rigid_faster(str(fixed_file), str(moving_file), str(save_file), 
-                                         'tform.mat', 0, reg_config['downsample'], 
-                                         reg_config['modality'], reg_config['max_iter'], 
-                                         reg_config['type'], 
-                                         reg_config['return_img'], 
-                                         nargout=1)        
+        if multiscale:
+            print('multiscale')
+            levels = matlab.double(reg_config['downsample'])
+            warps = matlab.double(reg_config['max_iter'])
+            transform = eng.register3D_intensity_multiscale(fixed_file, moving_file, save_file, 
+                                                    'tform.mat', 0, levels, 
+                                                    reg_config['modality'], warps, 
+                                                    reg_config['type'], 
+                                                    reg_config['return_img'], 
+                                                    nargout=1)
+        else:
+            transform = eng.register3D_rigid_faster(str(fixed_file), str(moving_file), str(save_file), 
+                                            'tform.mat', 0, reg_config['downsample'], 
+                                            reg_config['modality'], reg_config['max_iter'], 
+                                            reg_config['type'], 
+                                            reg_config['return_img'], 
+                                            nargout=1)        
         
         transform = np.asarray(transform) # (z,y,x) 
         tforms.append(transform)
         ref_files.append(fixed_file) # which is the reference used. 
-
 
 #        if reg_config['return_img'] != 1: # this is too slow and disabled. 
         im1 = fio.read_multiimg_PIL(fixed_file)
@@ -574,8 +604,8 @@ def register3D_SIFT_wrapper(dataset_files, in_folder, out_folder, reg_config, re
             
             tmatrix = eng.register3D_SIFT_wrapper(str(im1file), str(im2file), str(datasetsave_files[i]), 
                                               reg_config['downsample'], reg_config['lib_path'], reg_config['return_img'], reg_config['nnthresh'], reg_config['sigmaN'], reg_config['numKpLevels'])
-            tmatrix = np.asarray(tmatrix)
-            
+
+            tmatrix = np.array(tmatrix)
             """
             if matlab doesn't save matrix then we use python to do so.
             """
@@ -627,9 +657,9 @@ def register3D_SIFT_wrapper(dataset_files, in_folder, out_folder, reg_config, re
                     Downstream correction is used therefore just pass the transform along. 
                     """                
                     affine_matlab = geom.shuffle_Tmatrix_axis_3D(affine, [2,1,0]) # don't need to shuffle at all ? 
-
+                    print(affine_matlab)
                     # add these two options to the dict or modify to make sure this works. 
-                    reg_config_rigid['view'] = 1
+                    reg_config_rigid['view'] = None
                     reg_config_rigid['initial_tf'] = affine_matlab 
                     
                     # this allows reuse -> just pass the transform without having to interpolate first. 
