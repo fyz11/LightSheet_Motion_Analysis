@@ -493,7 +493,7 @@ def compute_cylindrical_statistics(contour_mask, coords, smoothing=None, radial_
     
     
     axial_phi = np.arctan2(coords[:,2]-center[2],  coords[:,1]-center[1])
-    axial_r = np.sqrt(np.sum((coords[:,1:]-center[1:][None,:])**2, axis=1))
+    axial_r = np.sqrt(np.sum((coords[:,1:]-center[1:][None,:])**2, axis=1)) # this can describe the outer surface but doesnot embed sign!. 
     
     min_z, max_z = np.min(coords[:,0]), np.max(coords[:,0])
     min_phi, max_phi = -np.pi, np.pi
@@ -754,7 +754,7 @@ def shrink_emb_mask_cylindric(mask, pad=5, center=None):
     return points
 
 
-def gen_ref_map(im_array, ref_coord_set, ref_space, interp_method='cubic'):
+def gen_ref_map(im_array, ref_coord_set, ref_space, interp_method='cubic', interp_type='rbf', rbf_samples=1000, rbf_basis='multiquadric', rbf_epsilon=20, rbf_smooth=0.5, debug=False):
     """
     Builds a 1-1 mapping from mapping space to xyz geometry space. 
     
@@ -770,7 +770,7 @@ def gen_ref_map(im_array, ref_coord_set, ref_space, interp_method='cubic'):
     
     coords = ref_coord_set[:,:3]
     mapped_coords = ref_coord_set[:,-2:]
-    distance = ref_coord_set[:,-3] # o i see!!! what is the proper distance here? 
+    distance = ref_coord_set[:,-3] # o i see!!! what is the proper distance here? which distance is this? => is this trye for all?
         
     m_set = np.hstack([mapped_coords, np.arange(len(mapped_coords))[:,None], distance[:,None]])
     m_group_row = [m_set[m_set[:,1]==r] for r in uniq_rows] # group by row first. 
@@ -786,18 +786,36 @@ def gen_ref_map(im_array, ref_coord_set, ref_space, interp_method='cubic'):
             if len(col_sort[j]) == 0: 
                 twoD_2_threeD_mappings[i,j] = np.nan
             else:
+                # is this really the best way? 
                 # instead of average we should take the outermost coordinates with respect to the central axis. 
                 coords3d = coords[(col_sort[j][:,2]).astype(np.int)]
-                coords3d_axial_dist = col_sort[j][:,3]
-                twoD_2_threeD_mappings[i,j,:] = coords3d[np.argmax(coords3d_axial_dist)] # this should give the furthest coordinate. 
-#                twoD_2_threeD_mappings[i,j,:] = np.median( coords3d, axis=0) # gain robustness. 
+#                coords3d_axial_dist = col_sort[j][:,3]
+#                twoD_2_threeD_mappings[i,j,:] = coords3d[np.argmax(coords3d_axial_dist)] # this should give the furthest coordinate. 
+                twoD_2_threeD_mappings[i,j,:] = np.median( coords3d, axis=0) # gain robustness. 
         mappings.append(col_sort)
 
-
+    if debug:
+        """
+        Visually check the raw mapping.
+        """
+        import pylab as plt 
+        plt.figure(figsize=(10,10))
+        plt.suptitle('Non-interpolated mapping')
+        plt.subplot(131)
+        plt.title('x')
+        plt.imshow(twoD_2_threeD_mappings[:,:,0])
+        plt.subplot(132)
+        plt.title('y')
+        plt.imshow(twoD_2_threeD_mappings[:,:,1])
+        plt.subplot(133)
+        plt.title('z')
+        plt.imshow(twoD_2_threeD_mappings[:,:,2])
+        plt.show()
+    
     """
     Interpolate the mapping in order to get a dense mapping. 
     """
-    val_mapping = np.logical_not(np.isnan(twoD_2_threeD_mappings[:,:,0]))
+    val_mapping = np.logical_not(np.isnan(twoD_2_threeD_mappings[:,:,0])) # identify all non-mapped. # is there a way to get a score? 
     rows, cols = np.indices((twoD_2_threeD_mappings[:,:,0]).shape)
     
     rows_ = rows[val_mapping]
@@ -805,19 +823,43 @@ def gen_ref_map(im_array, ref_coord_set, ref_space, interp_method='cubic'):
     
     mapped_3d_coords = twoD_2_threeD_mappings[val_mapping,:]
     
-    # can also do unstructured knn type interpolation. ?
-    interp_x = griddata(np.hstack([cols_[:,None], rows_[:,None]]), mapped_3d_coords[:,0],(cols, rows), method=interp_method, fill_value=0, rescale=False)
-    interp_y = griddata(np.hstack([cols_[:,None], rows_[:,None]]), mapped_3d_coords[:,1],(cols, rows), method=interp_method, fill_value=0, rescale=False)
-    interp_z = griddata(np.hstack([cols_[:,None], rows_[:,None]]), mapped_3d_coords[:,2],(cols, rows), method=interp_method, fill_value=0, rescale=False)
+    if interp_type == 'barycentric':
+        """
+        Method 1: unstructured barycentric interpolation
+        """
+        # can also do unstructured knn type interpolation. ?
+        interp_x = griddata(np.hstack([cols_[:,None], rows_[:,None]]), mapped_3d_coords[:,0],(cols, rows), method=interp_method, fill_value=0, rescale=False)
+        interp_y = griddata(np.hstack([cols_[:,None], rows_[:,None]]), mapped_3d_coords[:,1],(cols, rows), method=interp_method, fill_value=0, rescale=False)
+        interp_z = griddata(np.hstack([cols_[:,None], rows_[:,None]]), mapped_3d_coords[:,2],(cols, rows), method=interp_method, fill_value=0, rescale=False)
+
+    if interp_type == 'rbf':
+        """
+        Method 2: RBF (smooth underlying prior)
+        """
+        from scipy.interpolate import Rbf
+        # random sample fitting points. 
+        sampler = np.arange(len(cols_))
+        np.random.shuffle(sampler)
+        sampler = sampler[:rbf_samples] # whats the maximum number of points?
+        
+        interp_x_fn = Rbf(cols_[sampler], rows_[sampler], mapped_3d_coords[sampler,0], function=rbf_basis, epsilon=rbf_epsilon, smooth=rbf_smooth)
+        interp_y_fn = Rbf(cols_[sampler], rows_[sampler], mapped_3d_coords[sampler,1], function=rbf_basis, epsilon=rbf_epsilon, smooth=rbf_smooth)
+        interp_z_fn = Rbf(cols_[sampler], rows_[sampler], mapped_3d_coords[sampler,2], function=rbf_basis, epsilon=rbf_epsilon, smooth=rbf_smooth) 
+         
+        interp_x = interp_x_fn(cols.ravel(), rows.ravel()).reshape(rows.shape)
+        interp_y = interp_y_fn(cols.ravel(), rows.ravel()).reshape(rows.shape)
+        interp_z = interp_z_fn(cols.ravel(), rows.ravel()).reshape(rows.shape)
     
-    # clip to ensure mapping to image space. 
+
+    # clip to ensure mapping to valid image space. 
     interp_x = np.clip(interp_x, 0, im_array.shape[0]-1)
     interp_y = np.clip(interp_y, 0, im_array.shape[1]-1)
     interp_z = np.clip(interp_z, 0, im_array.shape[2]-1)
     
     # output as an image which is easier to work with and visualise!
     mapped_3d_coords_interp = np.dstack([interp_x, interp_y, interp_z])
-    
+    mapped_3d_coords_interp[np.isnan(mapped_3d_coords_interp)] = 0
+        
     return mapped_3d_coords_interp
 
 

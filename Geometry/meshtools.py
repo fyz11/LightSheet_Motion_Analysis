@@ -172,7 +172,7 @@ def clean_point_clouds3D(points, MLS_search_r=3, MLS_pol_order=2, MLS_pol_fit=Tr
     MLS.set_polynomial_fit(MLS_pol_fit)
     p = MLS.process()
     
-    # remove outliers. 
+    # remove outliers.PCL 
     fil = p.make_statistical_outlier_filter()
     fil.set_mean_k(fil_mean_k)  # what to do here? 
     fil.set_std_dev_mul_thresh (fil_std)
@@ -181,6 +181,22 @@ def clean_point_clouds3D(points, MLS_search_r=3, MLS_pol_order=2, MLS_pol_fit=Tr
     return np.asarray(p)
 
 
+def smooth_points_neighbours(points, n_neighbours=15, radius=30, neighbor_type='knn', avg_func=np.mean):
+    
+    from sklearn.neighbors import NearestNeighbors
+    nbrs = NearestNeighbors(n_neighbors=n_neighbours, algorithm='auto').fit(points)
+    
+    if neighbor_type == 'knn': # this one seems to work better? 
+        _, indices = nbrs.kneighbors(points)
+    if neighbor_type == 'radius': 
+        _, indices = nbrs.radius_neighbors(points)
+    
+    points_ = []
+    
+    for i, _ in enumerate(indices):
+        points_.append(avg_func(points[indices[i]], axis=0))
+        
+    return np.vstack(points_)
 
 
 def create_clean_mesh_points(im_array, clean_pts, n_pts=100, kind='linear', min_pts=10, eps=1, alpha=[1000,1000]):
