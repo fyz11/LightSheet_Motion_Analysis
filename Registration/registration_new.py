@@ -174,14 +174,14 @@ def matlab_register(fixed_file, moving_file, save_file, reg_config, multiscale=F
         spio.savemat('tform.mat', {'tform':affine}) # transpose for matlab 
         
         if multiscale == False:
-            transform = eng.register3D_rigid_faster(fixed_file, moving_file, save_file, 
+            transform = eng.register3D_rigid_faster(str(fixed_file), str(moving_file), str(save_file), 
                                                     'tform.mat', 1, reg_config['downsample'], 
                                                     reg_config['modality'], reg_config['max_iter'], 
                                                     reg_config['type'], 
                                                     reg_config['return_img'], 
                                                     nargout=1) 
         else:
-            transform = eng.register3D_intensity_multiscale(fixed_file, moving_file, save_file, 
+            transform = eng.register3D_intensity_multiscale(str(fixed_file), str(moving_file), str(save_file), 
                                                     'tform.mat', 1, reg_config['downsample'], 
                                                     reg_config['modality'], reg_config['max_iter'], 
                                                     reg_config['type'], 
@@ -189,7 +189,7 @@ def matlab_register(fixed_file, moving_file, save_file, reg_config, multiscale=F
                                                     nargout=1)
     else:
         if multiscale == False:
-            transform = eng.register3D_rigid_faster(fixed_file, moving_file, save_file, 
+            transform = eng.register3D_rigid_faster(str(fixed_file), str(moving_file), str(save_file), 
                                                     'tform.mat', 0, reg_config['downsample'], 
                                                     reg_config['modality'], reg_config['max_iter'], 
                                                     reg_config['type'], 
@@ -200,7 +200,7 @@ def matlab_register(fixed_file, moving_file, save_file, reg_config, multiscale=F
             # convert to matlab arrays. 
             levels = matlab.double(reg_config['downsample'])
             warps = matlab.double(reg_config['max_iter'])
-            transform = eng.register3D_intensity_multiscale(fixed_file, moving_file, save_file, 
+            transform = eng.register3D_intensity_multiscale(str(fixed_file), str(moving_file), str(save_file), 
                                                     'tform.mat', 0, levels, 
                                                     reg_config['modality'], warps, 
                                                     reg_config['type'], 
@@ -325,7 +325,7 @@ def matlab_group_register_batch(dataset_files, ref_file, in_folder, out_folder, 
             print('multiscale')
             levels = matlab.double(reg_config['downsample'])
             warps = matlab.double(reg_config['max_iter'])
-            transform = eng.register3D_intensity_multiscale(fixed_file, moving_file, save_file, 
+            transform = eng.register3D_intensity_multiscale(str(fixed_file), str(moving_file), str(save_file), 
                                                     'tform.mat', 0, levels, 
                                                     reg_config['modality'], warps, 
                                                     reg_config['type'], 
