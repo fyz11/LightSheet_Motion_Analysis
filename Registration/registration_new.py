@@ -444,6 +444,31 @@ def simple_join(stack1, stack2, cut_off=None, blend=True, offset=10, weights=[0.
     return combined_stack
 
 
+def sigmoid_join(stack1, stack2, cut_off=None, blend=True, gradient=200, shape=1, debug=False):
+    
+    """
+    stack1 and stack2 are assumed to be the same size. 
+    """
+    def generalised_sigmoid( stack1, cut_off=cut_off, shape=shape, grad=gradient):
+        
+        x = np.arange(0,stack1.shape[0])
+        weights2 = 1./((1+np.exp(-grad*(x - cut_off)))**(1./shape))
+        weights1 = 1. - weights2
+        
+        return weights1, weights2
+    
+    weights1, weights2 = generalised_sigmoid( stack1, cut_off=cut_off, shape=shape, grad=gradient)
+    if debug:
+        import pylab as plt 
+        plt.figure()
+        plt.plot(weights1, label='1')
+        plt.plot(weights2, label='2')
+        plt.legend()
+        plt.show()
+        
+    return stack2*weights1[:,None,None] + stack1*weights2[:,None,None]
+
+
 def simple_recolor_join(stack1, stack2, cut_off=None, mode='global'):
     
     """
