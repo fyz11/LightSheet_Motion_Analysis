@@ -32,9 +32,14 @@ function [done] = nonrigid_register3D_demons(ref_file,moving_file, outsavefile, 
     [D,~] = imregdemons(vol2,vol1,warps, 'PyramidLevels', length(warps));
       
     % if downsample is not 1 then we resize the field then apply
-    [u1,v1,w1]=resizeFlow(squeeze(D(:,:,:,1)),squeeze(D(:,:,:,2)),squeeze(D(:,:,:,3)),size(im1));
-    D = cat(4, u1,v1,w1);
-    deformed2 = imwarp(im2, D); % warp the original according to new flow. 
+    [u1_,v1_,w1_]=resizeFlow(squeeze(D(:,:,:,1)),squeeze(D(:,:,:,2)),squeeze(D(:,:,:,3)),size(im1));
+    D_up = cat(4, u1_,v1_,w1_);
+    deformed2 = imwarp(im2, D_up); % warp the original according to new flow. 
+    
+    % save only the downsampled fields. 
+    u1 = squeeze(D(:,:,:,1));
+    v1 = squeeze(D(:,:,:,2));
+    w1 = squeeze(D(:,:,:,3));
     
     %if isfile(outtransformfile)
     if exist(outtransformfile, 'file') == 2
