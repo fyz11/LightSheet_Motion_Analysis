@@ -128,8 +128,8 @@ dataset_folder = '/media/felix/Elements/Shankar LightSheet/Example Timelapse/tes
 out_aligned_folder = os.path.join(dataset_folder, 'aligned2')
 dataset_files = fio.load_dataset(out_aligned_folder, ext='.tif', split_key='TP_',split_position=1) # load in the just aligned files.
 
-#out_folder = 'test_polar_unwrap_same';
-#fio.mkdir(out_folder)
+out_folder = 'test_non-rigid-registered';
+fio.mkdir(out_folder)
 
 from scipy.misc import imsave
 from tqdm import tqdm 
@@ -137,18 +137,23 @@ import Visualisation.volume_img as vol_img
 import Geometry.meshtools as meshtools
 
 # test the parametrization approach again? o
-for i in tqdm(range(len(dataset_files))[1:2]):
+for i in tqdm(range(len(dataset_files))[1:-1]):
     
     reg_config = {'alpha':0.1,
                   'levels':[8,4,2,1],
                   'warps':[4,2,0,0]}
     
-    infile1 = dataset_files[i]
-    infile2 = dataset_files[-1]
+    infile1 = dataset_files[1] # pick one reference don't do sequential !. 
+    infile2 = dataset_files[i+1]
     
-    savefile='test_nonrigid.tif'
-    savetransformfile = 'test_transformfile.mat'
+#    savefile='test_nonrigid.tif'
+#    savetransformfile = 'test_transformfile.mat'
     
+    basename = infile2.split('/')[-1]
+    savefile= os.path.join(out_folder, 'nonrigid-' + basename)
+    savetransformfile = os.path.join(out_folder, 'transform-' + basename.replace('.tif','.mat'))
+    
+    print(i, savefile)
 #    reg_config['alpha'], reg_config['levels'], reg_config['warps']
     ret_val = registration.nonregister_3D(infile1, infile2, savefile, savetransformfile, reg_config)
     

@@ -540,6 +540,27 @@ def nonregister_3D(infile1, infile2, savefile, savetransformfile, reg_config):
         
     return return_val    
 
+def nonregister_3D_demons(infile1, infile2, savefile, savetransformfile, reg_config):
+        
+    """
+    this registers once with SIFT and returns transformations. 
+    """
+    import matlab.engine
+    eng = matlab.engine.start_matlab()
+    
+    print(reg_config['level'], reg_config['warps'])
+    
+#    alpha = matlab.single(reg_config['alpha'])
+#    level = matlab.double(reg_config['level'])
+    level = float(reg_config['level'])
+    warps = matlab.double(reg_config['warps'])
+    
+    # add in additional options for modifying. 
+    return_val = eng.nonrigid_register3D_demons(str(infile1), str(infile2), str(savefile), str(savetransformfile),
+                                       level, warps)
+        
+    return return_val    
+
 
 #==============================================================================
 #   Wrapper for 3D sift registration for registering aligning multi-view and sequential datasets. 
