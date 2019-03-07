@@ -1,4 +1,4 @@
-function [done] = nonrigid_register3D_demons(ref_file,moving_file, outsavefile, outtransformfile, downsample, warps)
+function [done] = nonrigid_register3D_demons(ref_file,moving_file, outsavefile, outtransformfile, downsample, warps, alpha)
     %%%
     %Void function
     %-------------
@@ -29,7 +29,7 @@ function [done] = nonrigid_register3D_demons(ref_file,moving_file, outsavefile, 
 
     % run demons
     % normalise histogram images. 
-    [D,~] = imregdemons(vol2,vol1,warps, 'PyramidLevels', length(warps));
+    [D,~] = imregdemons(vol2,vol1,warps, 'PyramidLevels', length(warps), 'AccumulatedFieldSmoothing', alpha);
       
     % if downsample is not 1 then we resize the field then apply
     [u1_,v1_,w1_]=resizeFlow(squeeze(D(:,:,:,1)),squeeze(D(:,:,:,2)),squeeze(D(:,:,:,3)),size(im1));

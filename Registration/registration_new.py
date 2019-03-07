@@ -554,10 +554,11 @@ def nonregister_3D_demons(infile1, infile2, savefile, savetransformfile, reg_con
 #    level = matlab.double(reg_config['level'])
     level = float(reg_config['level'])
     warps = matlab.double(reg_config['warps'])
+    smoothing = float(reg_config['alpha'])
     
     # add in additional options for modifying. 
     return_val = eng.nonrigid_register3D_demons(str(infile1), str(infile2), str(savefile), str(savetransformfile),
-                                       level, warps)
+                                       level, warps, smoothing)
         
     return return_val    
 
