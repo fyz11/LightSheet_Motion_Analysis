@@ -1,0 +1,13 @@
+##################################
+#   Annotation how-to.
+##################################
+
+for 3D-images e.g. 2D+t or 3D volumetric, itk-snap is a good tool to use for annotation and can be downloaded from <http://www.itksnap.org/pmwiki/pmwiki.php>. Windows, Linux and Mac are also usable.
+
+ITK-Snap is built for neuroimaging whose standard imaging formats are not .tif therefore .tif files need to be converted before they can be used.
+For python users please install nibabel (https://nipy.org/nibabel/reference/nibabel.nifti1.html)
+
+then run the provided script:
+    python export_tif_to_nifti <infile.tif>
+
+where <infile.tif> is the input multi-page tif to convert. 
