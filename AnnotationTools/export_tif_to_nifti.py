@@ -12,6 +12,7 @@ if __name__=="__main__":
     
     import sys 
     import nibabel as nib
+    import numpy as np 
 
     # provide filepath.    
     filepath = sys.argv[1]
