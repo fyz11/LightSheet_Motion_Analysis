@@ -560,8 +560,18 @@ def nonregister_3D_demons(infile1, infile2, savefile, savetransformfile, reg_con
     return_val = eng.nonrigid_register3D_demons(str(infile1), str(infile2), str(savefile), str(savetransformfile),
                                        level, warps, smoothing)
         
-    return return_val    
+    return return_val  
 
+def warp_3D_demons_tfm(infile, savefile, transformfile, downsample, direction=1):
+    """
+    this warps the input image file according to the deformation field described in transformfile. If direction == 1 warp in the same direction else if direction == -1 in the reverse direction.
+    """
+    import matlab.engine
+    eng = matlab.engine.start_matlab()
+
+    return_val = eng.warp_3D_demons(str(infile), str(savefile), str(transformfile), int(downsample), direction)
+
+    return return_val
 
 #==============================================================================
 #   Wrapper for 3D sift registration for registering aligning multi-view and sequential datasets. 
