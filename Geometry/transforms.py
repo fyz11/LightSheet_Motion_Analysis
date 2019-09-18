@@ -5,7 +5,8 @@ Created on Sat Aug 11 22:35:20 2018
 
 @author: felix
 """
-import Geometry.geometry as geom
+#import Geometry.geometry as geom
+import geometry as geom
 
 def apply_affine_tform(volume, matrix, sampling_grid_shape=None, check_bounds=False, contain_all=False, domain_grid_shape=None, codomain_grid_shape=None, domain_grid2world=None, codomain_grid2world=None, sampling_grid2world=None):
     
@@ -91,6 +92,24 @@ def correct_tilt_matrix(angle_x,angle_y, center=None, imshape=None):
     affine_x = geom.get_rotation_x(angle_x)
     affine_y = geom.get_rotation_y(angle_y) # the top has coordinates (r, np.pi/2. 0)
     affine = affine_x.dot(affine_y)
+    
+    if center is not None:
+        affine[:-1,-1] = center 
+    if imshape is not None:
+        decenter = np.eye(4); decenter[:-1,-1] = [-imshape[0]//2, -imshape[1]//2, -center[2]]
+    else:
+        decenter = np.eye(4); decenter[:-1,-1] = -center
+    T = affine.dot(decenter)
+    
+    return T
+
+def rotation_matrix_xyz(angle_x,angle_y, angle_z, center=None, imshape=None):
+    
+    import numpy as np 
+    affine_x = geom.get_rotation_x(angle_x)
+    affine_y = geom.get_rotation_y(angle_y) # the top has coordinates (r, np.pi/2. 0)
+    affine_z = geom.get_rotation_z(angle_z)
+    affine = affine_z.dot(affine_x.dot(affine_y))
     
     if center is not None:
         affine[:-1,-1] = center 
@@ -220,4 +239,30 @@ def correct_axial_tilt_manual(vol, vol_center, angle_x, angle_y, use_im_center=T
         
     return rot_mat, vol_out
         
+
+def rotate_volume_xyz(vol, vol_center, angle_x, angle_y, angle_z, use_im_center=True, out_shape=None):
+    """
+    image: x,y,z format
+    
+    rotation of a volumetric object by manual rotation angle specification
+    
+    """
+    import numpy as np 
+    
+    angle_x = angle_x/180. * np.pi
+    angle_y = angle_y/180. * np.pi
+    angle_z = angle_z/180. * np.pi
+       
+    # construct the correction matrix and transform the image. 
+    imshape = vol.shape
+    if use_im_center:
+        rot_mat = rotation_matrix_xyz(-angle_x, -angle_y, -angle_z, vol_center, imshape)
+    else:
+        rot_mat = rotation_matrix_xyz(-angle_x, -angle_y, -angle_z, vol_center)
         
+    if out_shape is None:
+        vol_out = apply_affine_tform(vol, rot_mat, sampling_grid_shape=imshape)
+    else:
+        vol_out = apply_affine_tform(vol, rot_mat, sampling_grid_shape=out_shape)
+        
+    return rot_mat, vol_out

@@ -7,7 +7,8 @@ Created on Fri Aug 31 09:53:00 2018
 """
 
 import numpy as np 
-import Geometry.transforms as tf
+#import Geometry.transforms as tf
+import transforms as tf
 
 
 def get_rotation_x(theta):
