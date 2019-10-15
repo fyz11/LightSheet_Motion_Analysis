@@ -199,6 +199,14 @@ def azimuthal_equidistant(latlong, lat1=0, lon0=0, center=None):
 
     return r*x_p, r*y_p 
     
+
+def compute_surface_distance_ref(xyz_order, xyz_ref_pt_dist):
+        
+    dist_ref = np.diff( np.vstack([xyz_ref_pt_dist[None,:], 
+                                   xyz_order]), axis=0)
+    line_dists = np.cumsum(np.linalg.norm(dist_ref, axis=1))
+    
+    return line_dists
     
     
 

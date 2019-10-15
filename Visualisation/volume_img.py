@@ -61,7 +61,7 @@ def viz_vector_field(position, velocity, vscale=3, scale_factor=7, volumeimg=Non
     return []
 
 
-def depth_proj_surface_2D(im_array, rot_x=0, rot_y=0, rot_z=0, axis=0, proj='exp', min_I=0, exp_tau=0.5, cut_off_fraction=0.5, enhance_gamma=1., background='white', unsharp_filt=False, unsharp_strength=0.1, unsharp_radius=3):
+def depth_proj_surface_2D(im_array, rot_x=0, rot_y=0, rot_z=0, axis=0, proj_type='max', proj='exp', min_I=0, exp_tau=0.5, cut_off_fraction=0.5, enhance_gamma=1., background='white', unsharp_filt=False, unsharp_strength=0.1, unsharp_radius=3):
     """ weighted (linear or exponential) projection volume along the given dimension following (optional rotation) 
         
         **note** only uint8 bit inputs.
@@ -126,7 +126,27 @@ def depth_proj_surface_2D(im_array, rot_x=0, rot_y=0, rot_z=0, axis=0, proj='exp
     ZZ = np.argmax(im_array_> 0, axis=axis); #ZZ = gaussian(ZZ, sigma=11, preserve_range=True).astype(np.int)
     weighted_im = weights_array*im_array_
    
-    im_proj_weights = np.max(weighted_im, axis=0)
+    if proj_type == 'max':
+        # do a maximum projection 
+        im_proj_weights = np.max(weighted_im, axis=0)
+        print(im_proj_weights.max())
+    
+    if proj_type == 'min_dist':
+        ZZ = np.argmax(im_array_ > 100, axis=0);
+        
+        XX, YY = np.meshgrid(range(n_x), range(n_y))
+        im_proj_weights = im_array_[ZZ,YY,XX]
+        
+        import pylab as plt 
+        
+        plt.figure()
+        plt.imshow(ZZ)
+        plt.show()
+        
+        plt.figure()
+        plt.imshow(im_proj_weights)
+        plt.show()
+        
     im_proj_weights = adjust_gamma(im_proj_weights, gamma=enhance_gamma) # brightness enhancement to aid background finding. 
     
     if background == 'white':
@@ -153,3 +173,46 @@ def depth_proj_surface_2D(im_array, rot_x=0, rot_y=0, rot_z=0, axis=0, proj='exp
             im_proj_weights = original
     
     return np.uint8(255.*rescale_intensity(np.clip(im_proj_weights, 0, 255)*1.)), ZZ
+
+
+def apply_white_bg(im, min_I=1):
+    
+    from skimage.morphology import remove_small_objects, binary_closing, binary_dilation, disk
+    from skimage.filters import gaussian 
+    from skimage.exposure import rescale_intensity
+    import cv2
+    # create a mask and apply feathering using guided filtering.
+    mask = im > min_I
+    mask = remove_small_objects(mask, 100)
+    mask = binary_closing(mask, disk(5))
+    mask = np.logical_not(mask); mask = binary_dilation(mask, disk(1))
+    mask = np.uint8(255*(mask)); 
+    # add feathering to be more visually pleasing
+    mask = np.uint8(np.clip(gaussian(mask, sigma=15, preserve_range=True), 0, 255))
+    
+#        mask = np.uint8(gaussian(mask, sigma=1, preserve_range=True) * 255)
+    guide_filter = cv2.ximgproc.createGuidedFilter(np.uint8(im), radius=5, eps=.5)
+    mask_filt = guide_filter.filter(np.uint8(mask))
+   
+    original = im * 255./np.max(im) + mask_filt
+    original = np.uint8(255.*rescale_intensity(np.clip(original*1., 0, 255)))
+#        original = np.uint8(np.clip(im_proj_weights * 255/np.max(im_proj_weights) + mask_filt, 0, 255))    
+#        original = np.uint8(np.clip(im_proj_weights + mask_filt, 0, 255))
+    blurred = np.clip(gaussian(im, 3, preserve_range=True), 0, 255)
+    im = original + 0.1 * (original - blurred)
+    
+    return np.uint8(255.*rescale_intensity(np.clip(im, 0, 255)*1.))
+
+def mark_checkerboard_lines_vol(img_2d_flat, color_1=(0,255,0), color_2=(255,255,0), spacing=64, thickness=3):
+    
+    img_2d_copy = np.dstack([img_2d_flat,
+                             img_2d_flat,
+                             img_2d_flat])
+    
+    for thick_i in range(int(np.rint(thickness))):
+        img_2d_copy[thick_i::spacing,:,:] = np.hstack(color_1)[None,:] 
+        img_2d_copy[:,thick_i::spacing,:] = np.hstack(color_2)[None,:] 
+    
+    return img_2d_copy
+
+

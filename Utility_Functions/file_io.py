@@ -235,13 +235,39 @@ def load_opt_flow_files(infolder, key='.mat', keyword='flow'):
 
 
 def read_optflow_file(optflowfile, key='motion_field'):
-    
+    """
+    helper for reading the RTTtracker motion field outputs. 
+    """    
     # result is 4D vector, which is x,y,z, 3D flow. 
     import scipy.io as spio 
     
     obj = spio.loadmat(optflowfile)
     
     return obj['motion_field']
+
+
+def read_demons_matlab_tform( tform_file, volshape):
+    """
+    helper for reading the matlab generated xyz demons deformation fields.
+    """   
+    import scipy.io as spio
+    from skimage.transform import resize
+    
+    tform_obj = spio.loadmat(tform_file)
+
+    u = (tform_obj['u1']).astype(np.float32).transpose(2,0,1)
+    v = (tform_obj['v1']).astype(np.float32).transpose(2,0,1)
+    w = (tform_obj['w1']).astype(np.float32).transpose(2,0,1)
+
+    scaling_factor = np.hstack(volshape).astype(np.float) / np.hstack(u.shape)
+    
+    # transform this remembering to cast to float32.
+    u = resize((u*scaling_factor[0]).astype(np.float32), volshape, preserve_range=True).astype(np.float32)
+    v = resize((v*scaling_factor[2]).astype(np.float32), volshape, preserve_range=True).astype(np.float32)
+    w = resize((w*scaling_factor[1]).astype(np.float32), volshape, preserve_range=True).astype(np.float32)
+
+    return w,v,u
+
 
     
     

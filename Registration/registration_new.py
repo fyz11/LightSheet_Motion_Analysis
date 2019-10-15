@@ -562,6 +562,7 @@ def nonregister_3D_demons(infile1, infile2, savefile, savetransformfile, reg_con
         
     return return_val  
 
+# warping the image using matlab 
 def warp_3D_demons_tfm(infile, savefile, transformfile, downsample, direction=1):
     """
     this warps the input image file according to the deformation field described in transformfile. If direction == 1 warp in the same direction else if direction == -1 in the reverse direction.
@@ -572,6 +573,74 @@ def warp_3D_demons_tfm(infile, savefile, transformfile, downsample, direction=1)
     return_val = eng.warp_3D_demons(str(infile), str(savefile), str(transformfile), int(downsample), direction)
 
     return return_val
+
+
+# warping the image using python -> bypasses matlab easier for interfacing with python directly. 
+def warp_3D_demons_matlab_tform_scipy(im, tform, direction='F'):
+    
+    import scipy.io as spio
+    from skimage.transform import resize
+    from scipy.ndimage import map_coordinates
+    import Utility_Functions.file_io as fio
+    
+    dx,dy,dz = fio.read_demons_matlab_tform(tform, im.shape)
+    im_interp = warp_3D_displacements_xyz(im, dx, dy, dz, direction=direction)
+    
+    return im_interp
+
+
+def warp_3D_displacements_xyz(im, dx, dy, dz, direction='F'):
+    
+    from skimage.transform import resize
+    from scipy.ndimage import map_coordinates
+    
+    XX, YY, ZZ = np.indices(im.shape) # set up the interpolation grid.
+    
+    if direction == 'F':
+        XX = XX + dx
+        YY = XX + dy 
+        ZZ = ZZ + dz
+    if direction == 'B':
+        XX = XX - dx
+        YY = YY - dy
+        ZZ = ZZ - dz
+    
+    # needs more memory % does this actually work? 
+    im_interp = map_coordinates(im, 
+                                np.vstack([(XX).ravel().astype(np.float32), 
+                                           (YY).ravel().astype(np.float32), 
+                                           (ZZ).ravel().astype(np.float32)]), prefilter=False, order=1, mode='nearest')
+    im_interp = im_interp.reshape(im.shape)
+    
+    return im_interp
+
+
+def warp_3D_transforms_xyz(im, tmatrix, direction='F'):
+    
+    """
+    This function is mainly to test how to combine the coordinates with transforms. 
+    """
+    from scipy.ndimage import map_coordinates
+    XX, YY, ZZ = np.indices(im.shape) # set up the interpolation grid.
+    
+    xyz = np.vstack([(XX).ravel().astype(np.float32), 
+                     (YY).ravel().astype(np.float32), 
+                     (ZZ).ravel().astype(np.float32),
+                     np.ones(len(ZZ.ravel()), dtype=np.float32)])
+    
+    if direction == 'F':
+        xyz_ = tmatrix.dot(xyz)
+    if direction == 'B':
+        print('warp_inverse')
+        print(np.linalg.inv(tmatrix))
+        xyz_ = (np.linalg.inv(tmatrix)).dot(xyz)
+    
+    # needs more memory % does this actually work? 
+    im_interp = map_coordinates(im, 
+                                xyz_[:3], prefilter=False, order=1, mode='nearest')
+    im_interp = im_interp.reshape(im.shape)
+    
+    return im_interp
 
 #==============================================================================
 #   Wrapper for 3D sift registration for registering aligning multi-view and sequential datasets. 

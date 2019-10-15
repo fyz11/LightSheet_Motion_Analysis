@@ -13,6 +13,7 @@ def keep_largest_component(mask3D):
     
     """
     remove small objects and keep the largest connected component
+    works for both 2D and 3D data. 
     """
     from skimage.measure import label
     import numpy as np 
@@ -174,7 +175,8 @@ def contour_seg_mask(im, mask):
     
     import cv2
     import numpy as np
-    im2,contours,heirachy = cv2.findContours(np.uint8(255*mask),cv2.RETR_LIST,cv2.CHAIN_APPROX_NONE)    # Note: plot the contours not the image output!
+#    im2,contours,heirachy = cv2.findContours(np.uint8(255*mask),cv2.RETR_LIST,cv2.CHAIN_APPROX_NONE)    # Note: plot the contours not the image output!
+    contours,heirachy = cv2.findContours(np.uint8(255*mask),cv2.RETR_LIST,cv2.CHAIN_APPROX_NONE)    # Note: plot the contours not the image output!
     
     # index into image. 
     contours_im = np.zeros_like(im)
@@ -280,6 +282,8 @@ def segment_contour_embryo(im_array, I_thresh=10, ksize=3, fast_flag=True, ref=N
     
     return mask_array, contour_array
     
+
+
 ##==============================================================================
 ##   To Do: This mapping needs to be modified, at the moment it is wrong in the sense it distorts the angles a lot and not conformal/equal length.     
 ##==============================================================================
@@ -511,6 +515,205 @@ def compute_cylindrical_statistics(contour_mask, coords, smoothing=None, radial_
     return unwrap_params
 
 
+def compute_geodesic_statistics(coords, filt_pts=True, frac_coords=0, ref_point=None, pole='S', n_angles=480, 
+                                resample_angle=True, resample_dist=True,
+                                n_samples_angle=1000, n_samples_dist=1000,
+                                smooth_angle=10000, smooth_dist=2000):
+    
+    from Geometry import meshtools
+    from Geometry.geometry import compute_surface_distance_ref
+    
+    """
+    Works primarily for surfaces like a ball
+    todo: is there a way to enforce biangle smoothness? 
+    """
+    def baseline_als(y, lam, p, niter=10):
+        from scipy import sparse
+        from scipy.sparse.linalg import spsolve
+        L = len(y)
+        D = sparse.csc_matrix(np.diff(np.eye(L), 2))
+        w = np.ones(L)
+        for i in range(niter):
+            W = sparse.spdiags(w, 0, L, L)
+            Z = W + lam * D.dot(D.transpose())
+            z = spsolve(Z, w*y)
+            w = p * (y > z) + (1-p) * (y < z)
+        return z
+
+    def find_continuous_bounds(x, y, thresh=0, tol=1):
+        
+        index = np.arange(len(y))
+        val_index = index[y>thresh]
+        
+        regs = []
+        re = []
+        
+        for v_index in val_index:
+            if len(re) == 0:
+                re.append(v_index)
+            else:
+                diff = v_index - re[-1]
+                if diff <= tol:
+                    re.append(v_index)
+                else:
+                    regs.append(re)
+                    re = []
+        if len(re) > 0:
+            regs.append(re)
+        
+        reg_len = np.hstack([len(r) for r in regs])
+        longest_reg_id = np.argmax(reg_len)        
+        longest_reg = regs[longest_reg_id]
+        
+        return longest_reg[0], longest_reg[-1]
+
+    if ref_point is None:
+        coords_centre = np.mean(coords, axis=0)[:3] # (x,y,z)
+
+        # get the z bounds. (x is long axis.)
+        x_min = np.min(coords[:,0]); x_max = np.max(coords[:,0])
+        if pole =='S':
+            ref_point = np.hstack([x_max, coords_centre[1], coords_centre[2]]) # compute the ref, point as the lowest.
+        if pole =='N':
+            ref_point = np.hstack([x_min, coords_centre[1], coords_centre[2]])
+
+        # take the closest real point as the actual reference.
+        pts_dist_ref = np.linalg.norm(coords[:,:3] - ref_point[None,:], axis=1)
+        ref_point = coords[np.argmin(pts_dist_ref)][:3]
+
+    # only take the given fraction of points. 
+    pts_ = coords[coords[:,0] > frac_coords*(x_min + x_max)]
+    
+    # compute the geometric centre of the points 
+    centre = np.mean(pts_, axis=0)[:3]
+    
+    # compute the phase of the points relative to the 1st (long) axis.
+    phi_angle = np.arctan2(pts_[:,2]-centre[2],  pts_[:,1]-centre[1])
+
+    ##################################
+    #  Main point smoothing function. 
+    ##################################    
+    # discretise angles into bins 
+    all_uniq_angles = np.linspace(-np.pi, np.pi, n_angles + 1)
+
+    # compile a table of uniq angles and sorted distances to reference point to compute the angles and geodesic distance
+    all_ang_ds_data = []
+    max_dists_ds_data = []
+
+    for jj in range(len(all_uniq_angles))[:-1]:
+        select = np.logical_and(phi_angle >= all_uniq_angles[jj], 
+                                phi_angle < all_uniq_angles[jj+1])
+        # get all points that satisfy this condition. 
+        line = pts_[select]; line_phi_angle = phi_angle[select]
+        dist_pts = np.linalg.norm(line[:,:3] - ref_point[None,:], axis=1)
+            
+        if len(dist_pts) == 0:
+            max_dists_ds_data.append(np.nan)
+        else:
+            max_dists_ds_data.append( np.max(dist_pts)) # not really accurate.. 
+        
+        sort_order = np.argsort(dist_pts)
+        # compute the cumulative distances (ds) along the curvature. 
+        dist_pts_sort = line[sort_order]
+        dist_ref = np.diff( np.vstack([ref_point[None,:], 
+                                        dist_pts_sort[:,:3]]), axis=0)
+        dist_cum = np.cumsum(np.linalg.norm(dist_ref, axis=1))
+#        ang = .5*(all_uniq_angles[jj] + all_uniq_angles[jj+1])
+        all_ang_ds_data.append([line_phi_angle, line[sort_order], dist_cum])
+
+    # =============================================================================
+    # Create the (x,y,z,ds,theta) points array 
+    # =============================================================================
+    pts_geodesic = []
+
+    for ang_data in all_ang_ds_data:
+        pts_ang = np.hstack([ang_data[1][:,:3], 
+                            ang_data[2][:,None], 
+                            ang_data[0][:,None]])
+        pts_geodesic.append(pts_ang)
+        
+    pts_geodesic = np.vstack(pts_geodesic)
+    
+    # s_dists = np.hstack([np.max(a[-1]) for a in all_ang_ds_data])
+    if filt_pts:
+        """
+        conduct spline based filtering
+        """
+        max_s = np.max(pts_geodesic[:,-2])
+
+        print('filtering by angle.')
+        pts_geodesic = meshtools.resample_surf_points_lines( pts_geodesic, 
+                                                            bins=n_angles, 
+                                                            ref_point=ref_point, 
+                                                            t_axis=-2, # surface distance 
+                                                            max_t_val=max_s, 
+                                                            range=(-np.pi, np.pi), 
+                                                            axis=-1, 
+                                                            sigma1d=5, 
+                                                            smooth1dmode='wrap', 
+                                                            remove_dup=True, 
+                                                            resample=resample_dist, 
+                                                            periodic=False, 
+                                                            n_samples=n_samples_dist, 
+                                                            smoothing=smooth_dist, # 2000
+                                                            poly_order=3, 
+                                                            return_intermediates=False,
+                                                            reparametrise_fn=compute_surface_distance_ref,
+                                                            xyz_ref_pt_dist = ref_point)
+
+        print('resampling along distance')
+        # we should be recalculating the phis 
+        pts_geodesic = meshtools.resample_surf_points_lines( pts_geodesic, 
+                                                        bins=np.max(pts_geodesic[:,3].astype(np.int))+1, 
+                                                        ref_point=None, 
+                                                        t_axis=None, # angle - can't do this for angle (prob due to duplications.)
+                                                        max_t_val=2*np.pi, 
+                                                        range=(0, np.max(pts_geodesic[:,3].astype(np.int))), 
+                                                        axis=-2, # discretise distance. 
+                                                        sigma1d=15, 
+                                                        smooth1dmode='wrap', 
+                                                        remove_dup=False, 
+                                                        resample=resample_angle, # only want filtering.  
+                                                        periodic=False, # normally False. 
+                                                        n_samples=n_samples_angle, 
+                                                        smoothing=smooth_angle, # 10000
+                                                        poly_order=3, 
+                                                        return_intermediates=False,
+                                                        reparametrise_fn=None)
+        pts_geodesic[:,-1] = np.arctan2(pts_geodesic[:,2]-centre[2],  
+                                        pts_geodesic[:,1]-centre[1])
+
+
+    # find the min_s, max_s of the input points. 
+    min_s = np.min(pts_geodesic[:,-2]).astype(np.int)
+    max_s = np.max(pts_geodesic[:,-2]).astype(np.int)
+
+    s_range = np.arange(min_s, max_s+1)
+    circumference_s = [pts_geodesic[np.logical_and(pts_geodesic[:,-2]>=s_range[ii], 
+                                                   pts_geodesic[:,-2]<s_range[ii+1])] for ii in range(len(s_range)-1)]
+    circum_dist = np.hstack([np.sum(np.linalg.norm(np.diff(c[:,:3], axis=0), axis=1)) for c in circumference_s])
+
+    # find the circum distance filt
+    circum_dist_filt = baseline_als(circum_dist, lam=1e4, p=0.5, niter=10)
+    # 0.05 is normal 
+    s_thresh = np.maximum(circum_dist_filt.max()*.25, 5)
+    print(s_thresh)
+    min_s, max_s = find_continuous_bounds( np.arange(min_s, max_s+1), circum_dist_filt, thresh=s_thresh, tol=1) # threshing at 0 gives too much artifacts. 
+
+    # based on the circum dist refine the region
+    s_resolution = max_s-min_s + 1
+    c_resolution = int(np.max(circum_dist_filt))
+    
+    unwrap_params = {'s_resolution': s_resolution,
+                     'c_resolution': c_resolution,
+                     'ranges':[-np.pi, min_s, np.pi, max_s],
+                     'aspect_ratio':[c_resolution, s_resolution],
+                     'center':centre, 
+                     'coords':pts_geodesic}
+
+    return unwrap_params
+
+
 def compute_orthographic_statistics(contour_mask, coords, pole='neg'):
     
     """
@@ -668,7 +871,7 @@ def compute_azimuthal_equidistant_statistics(contour_mask, coords, lat1=0, lon0=
 # =============================================================================
 #   given the ref_coord_set, generate a reference 1-1 mapping.  
 # =============================================================================
-def build_mapping_space(ref_coord_set, ranges=None, shape=None):
+def build_mapping_space(ref_coord_set, ranges=None, shape=None, polar_map=False):
     """
     Builds a rectilinear interpolation space.  
     """
@@ -678,9 +881,11 @@ def build_mapping_space(ref_coord_set, ranges=None, shape=None):
         uniq_x = np.unique(ref_coord_set[:,0])
         uniq_y = np.unique(ref_coord_set[:,1])
     else:
-        uniq_x = [ranges[0], ranges[2]] # x1, x2
-        uniq_y = [ranges[1], ranges[3]] # y1, y2
-        
+        # uniq_x = np.linspace(ranges[0], ranges[2], ranges[2]-ranges[0]+1) # x1, x2
+        # uniq_y = np.linspace(ranges[1], ranges[3], ranges[3]-ranges[1]+1) # y1, y2
+        uniq_x = np.hstack([ranges[0], ranges[2]])
+        uniq_y = np.hstack([ranges[1], ranges[3]])
+    # should add a condition what happens when shape is None and ranges is None. 
     if shape is None:
         x_space = np.linspace(uniq_x[0], uniq_x[-1], len(uniq_x))
         y_space = np.linspace(uniq_y[0], uniq_y[-1], len(uniq_y))
@@ -688,9 +893,24 @@ def build_mapping_space(ref_coord_set, ranges=None, shape=None):
         x_space = np.linspace(uniq_x[0], uniq_x[1], shape[0])
         y_space = np.linspace(uniq_y[0], uniq_y[1], shape[1])
     
-    # build the space. 
+    # build the rectilinear space. 
     ref_map_x, ref_map_y = np.meshgrid(x_space, y_space)
-    ref_space = np.dstack([ref_map_x, ref_map_y])
+
+    # if polar_map, construct the lookup in polar space of the map assuming the centre of the map to be centre of the polar mapping. 
+    if polar_map is True:
+        center_x = np.mean(ref_map_x)
+        center_y = np.mean(ref_map_y)
+    
+        disp_x = ref_map_x - center_x 
+        disp_y = ref_map_y - center_y
+        
+        r = np.sqrt(disp_x**2 + disp_y**2 + 1e-15)
+        theta = np.arctan2(disp_y, disp_x)
+        
+        ref_space = np.dstack([r, theta]) # compute the (r, theta) space
+    else:
+        # build just the rectilinear space. 
+        ref_space = np.dstack([ref_map_x, ref_map_y])
     
     return ref_space
 
@@ -828,9 +1048,9 @@ def gen_ref_map(im_array, ref_coord_set, ref_space, interp_method='cubic', inter
         Method 1: unstructured barycentric interpolation
         """
         # can also do unstructured knn type interpolation. ?
-        interp_x = griddata(np.hstack([cols_[:,None], rows_[:,None]]), mapped_3d_coords[:,0],(cols, rows), method=interp_method, fill_value=0, rescale=False)
-        interp_y = griddata(np.hstack([cols_[:,None], rows_[:,None]]), mapped_3d_coords[:,1],(cols, rows), method=interp_method, fill_value=0, rescale=False)
-        interp_z = griddata(np.hstack([cols_[:,None], rows_[:,None]]), mapped_3d_coords[:,2],(cols, rows), method=interp_method, fill_value=0, rescale=False)
+        interp_x = griddata(np.hstack([cols_[:,None], rows_[:,None]]), mapped_3d_coords[:,0],(cols, rows), method=interp_method, fill_value=0, rescale=True)
+        interp_y = griddata(np.hstack([cols_[:,None], rows_[:,None]]), mapped_3d_coords[:,1],(cols, rows), method=interp_method, fill_value=0, rescale=True)
+        interp_z = griddata(np.hstack([cols_[:,None], rows_[:,None]]), mapped_3d_coords[:,2],(cols, rows), method=interp_method, fill_value=0, rescale=True)
 
     if interp_type == 'rbf':
         """
@@ -861,6 +1081,60 @@ def gen_ref_map(im_array, ref_coord_set, ref_space, interp_method='cubic', inter
     mapped_3d_coords_interp[np.isnan(mapped_3d_coords_interp)] = 0
         
     return mapped_3d_coords_interp
+
+
+def pullback_coords(ref_space_ij, ref_coords_xyz, im_shape, infill=False, min_val=0, interp_method='barycentric', *args, **kwargs):
+    """
+    Function is meant to be improved version of map_coords_to_ref_map
+    """
+    from scipy.interpolate import CloughTocher2DInterpolator, griddata
+
+    if interp_method == 'barycentric':
+        pred_x = griddata(ref_coords_xyz[:,-2:], ref_coords_xyz[:,0], (ref_space_ij[...,0], ref_space_ij[...,1]), *args, **kwargs)
+        pred_y = griddata(ref_coords_xyz[:,-2:], ref_coords_xyz[:,1], (ref_space_ij[...,0], ref_space_ij[...,1]), *args, **kwargs)
+        pred_z = griddata(ref_coords_xyz[:,-2:], ref_coords_xyz[:,2], (ref_space_ij[...,0], ref_space_ij[...,1]), *args, **kwargs)
+    
+    if interp_method == 'C1':
+        f_x = CloughTocher2DInterpolator(ref_coords_xyz[:,-2:], ref_coords_xyz[:,0], *args, **kwargs)
+        f_y = CloughTocher2DInterpolator(ref_coords_xyz[:,-2:], ref_coords_xyz[:,1], *args, **kwargs)
+        f_z = CloughTocher2DInterpolator(ref_coords_xyz[:,-2:], ref_coords_xyz[:,2], *args, **kwargs)
+
+        pred_x = f_x((ref_space_ij[...,0], ref_space_ij[...,1]))
+        pred_y = f_y((ref_space_ij[...,0], ref_space_ij[...,1]))
+        pred_z = f_z((ref_space_ij[...,0], ref_space_ij[...,1]))
+    
+    if interp_method == 'rbf':
+        pred_x, pred_y, pred_z = rbf_interpolate_xyz(ref_coords_xyz, 
+                                                     ref_space_ij, *args, **kwargs)
+        
+    # clip the interpolation to the size of the image.
+    pred_x = np.clip(pred_x, 0, im_shape[0]-1)
+    pred_y = np.clip(pred_y, 0, im_shape[1]-1)
+    pred_z = np.clip(pred_z, 0, im_shape[2]-1)
+    
+    
+    # final processing (particularly important for polar projections whereby the cartesian to polar mapping is not dense)
+    pred_xyz = [pred_x, pred_y, pred_z]
+    
+    if infill:
+        infill_pred_xyz = []
+        
+        for pred in pred_xyz:
+            interp_coords = np.array(np.where(pred>min_val)).T
+            interp_I = pred[pred>min_val]
+            
+            # grid interpolation        
+            map_shape = pred.shape
+            grid_x, grid_y = np.meshgrid(range(map_shape[1]), range(map_shape[0]))
+            pred_interp = griddata(interp_coords[:,::-1], interp_I, (grid_x, grid_y), method='linear', fill_value=0)
+            infill_pred_xyz.append(pred_interp)
+        
+        # return the corresponding interpolated (x,y,z), coordinates.
+        return np.dstack(infill_pred_xyz)
+    else:
+        # save time. 
+        return np.dstack(pred_xyz)
+
 
 
 # generic function to map intensities.         
@@ -932,6 +1206,22 @@ def map_intensities(mapped_coords, query_I, shape, interp=True, distance=None, u
         return mapped_img
     
 
+def map_intensity_interp3(query_pts, grid_shape, I_ref, method='linear'):
+    
+    # interpolate instead of discretising to avoid artifact.
+    from scipy.interpolate import RegularGridInterpolator
+    
+    #ZZ,XX,YY = np.indices(im_array.shape)
+    spl_3 = RegularGridInterpolator((np.arange(grid_shape[0]), 
+                                     np.arange(grid_shape[1]), 
+                                     np.arange(grid_shape[2])), 
+                                     I_ref, method=method, bounds_error=False, fill_value=0)
+    
+    I_query = np.uint8(spl_3((query_pts[...,0], 
+                              query_pts[...,1],
+                              query_pts[...,2])))
+    
+    return I_query
 
 ## function used by the map_coords_to_ref_coords_map, can be used directly if one already has the info. 
 #def map_coords_to_ref_map_polar(query_coords_order, ref_map, map_index=[-2,-1]):
@@ -994,7 +1284,35 @@ def match_coords_to_ref_space(query_coords, ref_x, ref_y, map_index=[-2,-1]):
     mapped_coords = np.hstack([mapped_coords_col, mapped_coords_row])
     
     return mapped_coords
+
+
+def match_coords_to_ref_space_general(query_coords, ref_coords, map_index=[-2,-1], rescale=True):
+    """
+    given a ref_map assigns the query coordinates onto the positions of the map using fast NN trees.
+        note query_coords are ordered.
+    """    
+    from sklearn.neighbors import NearestNeighbors
+    import numpy as np 
+
+    neigh = NearestNeighbors(n_neighbors=1, leaf_size=2, algorithm='kd_tree', n_jobs=4)
+    query = query_coords[:, map_index]
     
+    ref_coords_ = ref_coords.copy()
+    
+    if rescale:
+        for ch in range(ref_coords_.shape[-1]):
+            ref_coords_ch = ref_coords_[...,ch]
+            pt_range = ref_coords_ch.max() - ref_coords_ch.min()
+            ref_coords_[...,ch] = ref_coords_[...,ch]  / float(pt_range)
+            query[...,ch] = query[...,ch] / float(pt_range)
+    print(ref_coords_)
+    # fit the nearest neighbour interpolator
+    neigh.fit(ref_coords_)
+    
+    neighbor_index = neigh.kneighbors(query, return_distance=False)
+    
+    return neighbor_index
+
     
 def map_coords_to_ref_map(query_coords_order, ref_map):
     """
@@ -1017,6 +1335,69 @@ def map_coords_to_ref_map(query_coords_order, ref_map):
             neighbor_index.append(np.hstack([ii*np.ones(len(q))[:,None], res]))
 
     return neighbor_index
+
+
+# =============================================================================
+# associated function to map two reference systems together. 
+# =============================================================================
+def assoc_ve_epi_coords(ve_coords, epi_coords, ref_surface='ve', normal_neighbours=35, K=1, use_normals=False):
+    """
+    prob able to solve this without using normals? -> minimum distance between two surfaces? 
+    """
+    from sklearn.neighbors import NearestNeighbors  
+#    # compute the normals from the epi? 
+#    center = np.hstack([np.mean(epi_coords[...,i]) for i in range(epi_coords.shape[-1])])
+#
+#    # is ok but is open3D better? 
+#    normals_epi, curvature_epi = findPointNormals(epi_coords, 
+#                                                nNeighbours=35, 
+#                                                viewPoint=center)
+    neigh = NearestNeighbors(n_neighbors=K)
+    if ref_surface == 've':
+        neigh.fit(ve_coords) # fit the ve_coords or epi?
+    if ref_surface =='epi':
+        neigh.fit(epi_coords)
+        
+    if ref_surface =='ve':
+        nn_inds = neigh.kneighbors(epi_coords, return_distance=False) # also get the distance, the distance is used for cov computation.
+    if ref_surface =='epi':
+        nn_inds = neigh.kneighbors(ve_coords, return_distance=False)
+
+    return nn_inds
+
+
+def align_ve_epi_rescale(ve_img_stack, epi_img_stack, mode='edge'):
+    
+    from skimage.transform import resize
+    
+    return resize(epi_img_stack, ve_img_stack.shape, preserve_range=True, mode=mode)
+    
+
+
+def remap_ve_epi_unwrap_intensities(query_vid, ref_vid, match_inds, avg_fnc=np.median, smooth_sigma=1.5):
+    
+    from skimage.filters import gaussian
+    from tqdm import tqdm
+    
+    if len(match_inds.shape) == 1:
+        match_inds = match_inds[:,None]
+        
+    new_vid = []
+        
+    for frame in tqdm(range(len(query_vid))):
+        new_frames = [query_vid[frame].ravel()[match_inds[:,i].ravel()].reshape(ref_vid[frame].shape) 
+                        for i in range(match_inds.shape[1])]
+        new_frame = avg_fnc(np.array(new_frames), axis=0)
+        
+        if smooth_sigma > 0: 
+            new_frame = gaussian(new_frame, sigma=smooth_sigma, preserve_range=True)
+        
+        new_vid.append(new_frame)
+        
+    new_vid = np.uint8(np.array(new_vid))
+    
+    return new_vid
+        
 
 
 # =============================================================================

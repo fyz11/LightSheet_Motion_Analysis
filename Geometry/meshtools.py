@@ -155,6 +155,179 @@ def findPointNormals(points, nNeighbours, viewPoint=[0,0,0], dirLargest=True):
     
     return normals, curvature
 
+def resample_surf_points_lines( point_data, bins, ref_point=None, t_axis=None, max_t_val=None, range=None, axis=0, sigma1d=5, smooth1dmode='wrap', remove_dup=False, resample=True, periodic=False, n_samples=1000, smoothing=1000, poly_order=3, return_intermediates=True, reparametrise_fn=None, *args, **kwargs):
+
+    """
+    Uses spline interpolation to interpolate along ordered lines, enables smooth reparametrisation of surface along each of the axis
+    
+    point_data : should be (N,5) array, (x,y,z, i,j) where i,j is the effective (u,v) mapping
+    axis : which dimension we are going to discretise into lines and smooth 
+    
+    """
+    import numpy as np 
+    from scipy import ndimage, interpolate
+    import pylab as plt 
+    from tqdm import tqdm
+
+    # create discretised binning 
+    if range is not None:
+        all_uniq_values = np.linspace(range[0],
+                                      range[1], 
+                                      bins + 1)
+    else:
+        all_uniq_values = np.linspace(point_data[:,axis].min(),
+                                      point_data[:,axis].max(), 
+                                      bins + 1)
+
+    # create a new tabular data
+    # compile a table of uniq angles and sorted distances to reference point
+    point_data_binned = []
+    binned_data_debug = []
+
+    for jj in tqdm(np.arange(len(all_uniq_values))[:-1]):
+        
+        # select out data from this bin. 
+        select = np.logical_and(point_data[:,axis] >= all_uniq_values[jj], 
+                                point_data[:,axis] < all_uniq_values[jj+1])
+
+        # slice out the points  
+        line = point_data[select]
+        binned_data_debug.append(line)
+
+        if axis == -1: 
+            sort_order = np.argsort(line[:,-2])
+        if axis == -2: 
+            sort_order = np.argsort(line[:,-1])
+        line = line[sort_order] # sort by the other axis.
+
+        # check if there is enough points to do anything with 
+        if len(line) > poly_order:
+
+            # print(all_uniq_values[jj])
+            # smoothen the coordinates first
+            xp = line[:,0]; yp = line[:,1]; zp = line[:,2]; 
+
+            if ref_point is not None:
+                xp = np.hstack([ref_point[0], xp])
+                yp = np.hstack([ref_point[1], yp])
+                zp = np.hstack([ref_point[2], zp])
+            
+            if t_axis is not None:
+                dp = line[:,t_axis]
+            else:
+                if axis == -1:
+                    dp = line[:,-1]
+                if axis == -2:
+                    dp = line[:,-2]
+
+                # give a monotonicity check on dp!. must be increasing....  
+                
+            # print(line[:,-2])
+            if remove_dup:
+                # print('removing duplications')
+                xp = xp[:-1]
+                yp = yp[:-1]
+                zp = zp[:-1]
+
+                jump = np.sqrt(np.diff(xp)**2 + np.diff(yp)**2+np.diff(zp)**2) 
+                smooth_jump = ndimage.gaussian_filter1d(jump, 5, mode='wrap')  # window of size 5 is arbitrary
+                limit = 2*np.median(smooth_jump)    # factor 2 is arbitrary
+                xp, yp, zp = xp[:-1], yp[:-1], zp[:-1]
+                dp = dp[:-1]
+
+                xp = xp[(jump > 0) & (smooth_jump < limit)]
+                yp = yp[(jump > 0) & (smooth_jump < limit)]
+                zp = zp[(jump > 0) & (smooth_jump < limit)]
+                dp = dp[(jump > 0) & (smooth_jump < limit)] 
+
+            else:
+                xp = ndimage.gaussian_filter1d(xp, sigma1d, mode=smooth1dmode)
+                yp = ndimage.gaussian_filter1d(yp, sigma1d, mode=smooth1dmode)
+                zp = ndimage.gaussian_filter1d(zp, sigma1d, mode=smooth1dmode)
+                # dp = ndimage.gaussian_filter1d(dp, sigma1d, mode=smooth1dmode)
+
+            # if we have ref point then add this on.
+            if ref_point is not None:
+                xp = np.hstack([ref_point[0], xp])
+                yp = np.hstack([ref_point[1], yp])
+                zp = np.hstack([ref_point[2], zp])
+                dp = np.hstack([0, dp])
+
+            # else:
+                # print('no ref point')
+
+            # print(xp.shape, yp.shape, zp.shape, dp.shape)
+            if t_axis is None:
+                if periodic == True:
+                    tck, u = interpolate.splprep([xp,
+                                                  yp,
+                                                  zp], per=1, s=smoothing)
+                else:
+                    tck, u = interpolate.splprep([xp,
+                                                yp,
+                                                zp], s=smoothing)
+            else:
+                # dp = np.linspace(dp[0], dp[-1], len(dp))
+                if periodic == True:
+                    tck, u = interpolate.splprep([xp,
+                                                  yp,
+                                                  zp], s=smoothing, u=dp / max_t_val, per=1)
+                else:
+                    tck, u = interpolate.splprep([xp,
+                                                  yp,
+                                                  zp], s=smoothing, u=dp / max_t_val)
+
+            if t_axis is None:
+                if resample == False:
+                    u_fine = np.linspace(0, 1, len(xp)) # no interpolation 
+                else:
+                    u_fine = np.linspace(0, 1, n_samples) # no interpolation 
+            else:
+
+                if resample == False:
+                    u_fine = np.linspace(0, (dp / max_t_val).max(), len(xp)) 
+                else:
+                    u_fine = np.linspace(0, (dp / max_t_val).max(), n_samples)
+
+            x_fine, y_fine, z_fine = interpolate.splev(u_fine, tck)
+
+            # refine the information along the axis based on the interpolation. 
+            val_fine = .5*(all_uniq_values[jj] + all_uniq_values[jj+1]) * np.ones(len(x_fine))
+            
+            new_point_data = np.zeros((len(x_fine), 5))
+            new_point_data[:,0] = x_fine
+            new_point_data[:,1] = y_fine
+            new_point_data[:,2] = z_fine
+            new_point_data[:,axis] = val_fine
+
+            if reparametrise_fn is not None:
+                if axis == -1: 
+                    new_point_data[:,-2] = reparametrise_fn(new_point_data[:,:3], *args, **kwargs)
+                if axis == -2:  
+                    new_point_data[:,-1] = reparametrise_fn(new_point_data[:,:3], *args, **kwargs)
+            else:
+                if axis == -1: 
+                    new_point_data[:,-2] = np.linspace(np.min(line[:,-2]), np.max(line[:,-2]), len(x_fine))
+                if axis == -2:  
+                    new_point_data[:,-1] = np.linspace(np.min(line[:,-1]), np.max(line[:,-1]), len(x_fine))
+
+            # fig = plt.figure()
+            # ax = fig.add_subplot(111, projection='3d')
+            # ax.scatter(point_data[::200,0], 
+            #            point_data[::200,1], 
+            #            point_data[::200,2], 'o')
+            # ax.scatter(xp, yp, zp,'go')
+            # ax.plot(x_fine, y_fine, z_fine, '-ro')
+            # plt.show()
+
+            point_data_binned.append( new_point_data )
+        
+    point_data_resampled = np.vstack(point_data_binned)
+
+    if return_intermediates:
+        return point_data_resampled, binned_data_debug
+    else:
+        return point_data_resampled
 
 
 def clean_point_clouds3D(points, MLS_search_r=3, MLS_pol_order=2, MLS_pol_fit=True, fil_mean_k=5, fil_std=3):
